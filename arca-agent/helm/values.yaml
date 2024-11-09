@@ -1,0 +1,14 @@
+replicaCount: 1
+
+image:
+  repository: us-east1-docker.pkg.dev/dogfood-cx/registryrepository/arca-agent
+  tag: latest
+  pullPolicy: Always
+
+serviceAccount:
+  name: arca-agent
+
+rbac:
+  create: true
+
+resources: {}
