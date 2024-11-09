@@ -19,6 +19,8 @@ spec:
               properties:
                 agentSetting:
                   type: string
+                discoveryLabel:
+                  type: string
   scope: Namespaced
   names:
     plural: agentconfigs

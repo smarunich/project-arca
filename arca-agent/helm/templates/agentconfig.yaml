@@ -3,5 +3,8 @@ apiVersion: operator.arca.io/v1alpha1
 kind: AgentConfig
 metadata:
   name: {{ include "arca-agent.fullname" . }}
+  labels:
+    arca-observed: "true"
 spec:
   agentSetting: "example-setting"
+  discoveryLabel: "arca-observed=true"
