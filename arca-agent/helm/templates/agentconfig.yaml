@@ -4,7 +4,7 @@ kind: AgentConfig
 metadata:
   name: {{ include "arca-agent.fullname" . }}
   labels:
-    arca-observed: "true"
+    arca.io/managed: "true"
 spec:
   agentSetting: "example-setting"
-  discoveryLabel: "arca-observed=true"
+  discoveryLabel: "arca.io/managed=true"

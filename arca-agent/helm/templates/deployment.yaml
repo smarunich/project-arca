@@ -19,5 +19,8 @@ spec:
         - name: arca-agent
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: LOG_LEVEL
+              value: "{{ .Values.logLevel }}"
           resources:
             {{- toYaml .Values.resources | nindent 12 }}

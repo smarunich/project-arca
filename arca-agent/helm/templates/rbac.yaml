@@ -4,6 +4,9 @@ kind: ClusterRole
 metadata:
   name: {{ include "arca-agent.fullname" . }}-role
 rules:
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch"]
   - apiGroups: ["operator.arca.io"]
     resources: ["agentconfigs"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]

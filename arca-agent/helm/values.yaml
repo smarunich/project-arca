@@ -12,3 +12,5 @@ rbac:
   create: true
 
 resources: {}
+
+logLevel: INFO  # Default log level

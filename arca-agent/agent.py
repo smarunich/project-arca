@@ -1,8 +1,16 @@
 # agent.py
 
+import os
+import time
 import kopf
 import kubernetes
 from kubernetes import client, config
+import logging
+
+# Configure logging
+log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
+logging.basicConfig(level=log_level)
+logger = logging.getLogger(__name__)
 
 # Load the Kubernetes configuration
 config.load_incluster_config()
@@ -16,33 +24,37 @@ def handle_agentconfig(spec, name, namespace, **kwargs):
     """
     Handle creation and updates to AgentConfig resources.
     """
-    agent_setting = spec.get('agentSetting', 'default-value')
     discovery_label = spec.get('discoveryLabel')
     if not discovery_label:
+        logger.error("discoveryLabel must be specified in AgentConfig.")
         raise kopf.PermanentError("discoveryLabel must be specified in AgentConfig.")
 
     # Fetch namespaces that match the discovery label
     namespaces = core_v1_api.list_namespace(label_selector=discovery_label)
     for ns in namespaces.items:
-        print(f"Scanning namespace: {ns.metadata.name}")
-        services = core_v1_api.list_namespaced_service(ns.metadata.name)
-        for svc in services.items:
-            print_service_details(svc)
+        watch_services(ns.metadata.name, discovery_label)
 
-    print("Namespace scanning complete.")
+def watch_services(namespace, discovery_label):
+    """
+    Watch for changes in services within a namespace.
+    """
+    while True:
+        services = core_v1_api.list_namespaced_service(namespace)
+        for svc in services.items:
+            logger.debug(f"Service details: {svc}")
+        time.sleep(60)  # Check every 60 seconds
 
 def print_service_details(service):
     """
     Print detailed information about a Kubernetes service.
     """
-    print(f"Service Name: {service.metadata.name}")
-    print(f"Namespace: {service.metadata.namespace}")
-    print(f"Labels: {service.metadata.labels}")
-    print(f"Annotations: {service.metadata.annotations}")
-    print(f"Cluster IP: {service.spec.cluster_ip}")
-    print(f"Ports: {service.spec.ports}")
-    print(f"Type: {service.spec.type}")
-    print(f"Session Affinity: {service.spec.session_affinity}")
+    logger.info(f"Service Name: {service.metadata.name}")
+    logger.info(f"Namespace: {service.metadata.namespace}")
+    logger.info(f"Labels: {service.metadata.labels}")
+    logger.info(f"Annotations: {service.metadata.annotations}")
+    logger.info(f"Cluster IP: {service.spec.cluster_ip}")
+    logger.info(f"Ports: {service.spec.ports}")
+    logger.info(f"Type: {service.spec.type}")
+    logger.info(f"Session Affinity: {service.spec.session_affinity}")
     if service.spec.selector:
-        print(f"Selector: {service.spec.selector}")
-    print("-----")
+        logger.info(f"Selector: {service.spec.selector}")
