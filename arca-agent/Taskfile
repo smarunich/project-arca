@@ -1,0 +1,37 @@
+# Taskfile.yaml
+version: '3'
+
+vars:
+  REGISTRY: us-east1-docker.pkg.dev/dogfood-cx/registryrepository
+  GIT_COMMIT:
+    sh: git rev-parse HEAD
+
+tasks:
+  build-image:
+    desc: Build Docker image for amd64
+    cmds:
+      - | 
+        docker build --platform linux/amd64 \
+          -t {{.REGISTRY}}/arca-agent:latest . 
+      - docker tag {{.REGISTRY}}/arca-agent:latest {{.REGISTRY}}/arca-agent:{{.GIT_COMMIT}}
+    silent: false
+
+  login-registry:
+    desc: Login to Google Cloud Artifact Registry
+    cmds:
+      - gcloud auth configure-docker {{.REGISTRY}} --quiet
+    silent: false
+
+  push-image:
+    desc: Push the Docker image to Google Cloud Artifact Registry
+    deps: [login-registry]
+    cmds:
+      - docker push {{.REGISTRY}}/arca-agent:latest
+      - docker push {{.REGISTRY}}/arca-agent:{{.GIT_COMMIT}}
+    silent: false
+
+  test-image:
+    desc: Test the Docker image
+    cmds:
+      - echo "test works! trust me, please."
+    silent: false

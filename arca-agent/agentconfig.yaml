@@ -1,0 +1,9 @@
+# agent_config.yaml
+
+apiVersion: operator.arca.io/v1alpha1
+kind: AgentConfig
+metadata:
+  name: example-agent-config
+  namespace: default
+spec:
+  agentSetting: "example-setting"

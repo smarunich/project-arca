@@ -1,0 +1,23 @@
+# operator_deployment.yaml
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: arca-agent
+  labels:
+    app: arca-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: arca-agent
+  template:
+    metadata:
+      labels:
+        app: arca-agent
+    spec:
+      serviceAccountName: arca-agent
+      containers:
+        - name: arca-agent
+          image: us-east1-docker.pkg.dev/dogfood-cx/registryrepository/arca-agent:latest
+          imagePullPolicy: Always
