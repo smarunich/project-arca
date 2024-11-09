@@ -13,4 +13,4 @@ rbac:
 
 resources: {}
 
-logLevel: INFO  # Default log level
+logLevel: DEBUG  # Default log level
