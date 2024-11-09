@@ -18,21 +18,25 @@ config.load_incluster_config()
 # Create Kubernetes API clients
 core_v1_api = client.CoreV1Api()
 
+@kopf.on.startup()
+def configure(settings: kopf.OperatorSettings, **_):
+    settings.watching.clusterwide = True  # Set to False if you want namespace-specific
+
 @kopf.on.create('operator.arca.io', 'v1alpha1', 'agentconfigs')
 @kopf.on.update('operator.arca.io', 'v1alpha1', 'agentconfigs')
-def handle_agentconfig(spec, name, namespace, **kwargs):
-    """
-    Handle creation and updates to AgentConfig resources.
-    """
+def handle_agentconfig(spec, **kwargs):
     discovery_label = spec.get('discoveryLabel')
     if not discovery_label:
         logger.error("discoveryLabel must be specified in AgentConfig.")
         raise kopf.PermanentError("discoveryLabel must be specified in AgentConfig.")
 
     # Fetch namespaces that match the discovery label
-    namespaces = core_v1_api.list_namespace(label_selector=discovery_label)
-    for ns in namespaces.items:
-        watch_services(ns.metadata.name, discovery_label)
+    try:
+        namespaces = core_v1_api.list_namespace(label_selector=discovery_label)
+        for ns in namespaces.items:
+            logger.info(f"Discovered namespace: {ns.metadata.name}")
+    except Exception as e:
+        logger.error(f"Failed to list namespaces: {str(e)}")
 
 def watch_services(namespace, discovery_label):
     """

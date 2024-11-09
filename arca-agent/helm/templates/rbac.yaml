@@ -5,17 +5,14 @@ metadata:
   name: {{ include "arca-agent.fullname" . }}-role
 rules:
   - apiGroups: [""]
-    resources: ["services"]
+    resources: ["namespaces", "pods", "services", "configmaps", "events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["operator.arca.io"]
     resources: ["agentconfigs"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: [""]
-    resources: ["pods", "services", "configmaps", "events"]
-    verbs: ["*"]
-  - apiGroups: ["apps"]
-    resources: ["deployments"]
-    verbs: ["*"]
 
 ---
 
