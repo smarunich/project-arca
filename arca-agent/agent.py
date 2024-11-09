@@ -5,7 +5,7 @@ from kubernetes import client, config
 import logging
 
 # Configure logging
-log_level = os.getenv('LOG_LEVEL').upper()
+log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
 logging.basicConfig(level=log_level)
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ core_v1_api = client.CoreV1Api()
 
 # Global caches
 agentconfigs = {}        # Mapping from AgentConfig name to discoveryLabel
-namespaces_cache = {}    # Mapping from namespace name to labels
+matching_namespaces = set()  # Set of namespaces matching any AgentConfig's discoveryLabel
 
 @kopf.on.startup()
 def configure(settings: kopf.OperatorSettings, **_):
@@ -33,12 +33,23 @@ def configure(settings: kopf.OperatorSettings, **_):
     settings.persistence.progress_storage = kopf.AnnotationsProgressStorage()
     logger.debug("Configured operator to use annotations for progress storage.")
 
-    # Initialize the namespaces cache
-    namespaces = core_v1_api.list_namespace()
-    for ns in namespaces.items:
-        labels = ns.metadata.labels or {}
-        namespaces_cache[ns.metadata.name] = labels
-        logger.debug(f"Cached namespace {ns.metadata.name} labels: {labels}")
+    # Initialize the matching namespaces set
+    initialize_matching_namespaces()
+
+def initialize_matching_namespaces():
+    # Clear existing matching namespaces
+    matching_namespaces.clear()
+    # Rebuild the matching namespaces based on current AgentConfigs
+    if agentconfigs:
+        for ns in core_v1_api.list_namespace().items:
+            ns_labels = ns.metadata.labels or {}
+            ns_name = ns.metadata.name
+            for discovery_label in agentconfigs.values():
+                key, value = discovery_label.split('=', 1)
+                if ns_labels.get(key) == value:
+                    matching_namespaces.add(ns_name)
+                    logger.debug(f"Namespace {ns_name} added to matching namespaces.")
+                    break  # Stop checking after the first match
 
 @kopf.on.create('operator.arca.io', 'v1alpha1', 'agentconfigs')
 @kopf.on.update('operator.arca.io', 'v1alpha1', 'agentconfigs')
@@ -48,24 +59,43 @@ def handle_agentconfig(spec, name, namespace, **kwargs):
         logger.error("discoveryLabel must be specified in 'key=value' format in AgentConfig.")
         raise kopf.PermanentError("discoveryLabel must be specified in 'key=value' format in AgentConfig.")
     logger.info(f"Processing AgentConfig: {name} with discoveryLabel: {discovery_label}")
+
     agentconfigs[name] = discovery_label
+
+    # Rebuild the matching namespaces set
+    initialize_matching_namespaces()
 
 @kopf.on.delete('operator.arca.io', 'v1alpha1', 'agentconfigs')
 def handle_agentconfig_delete(name, **kwargs):
     logger.info(f"Deleting AgentConfig: {name}")
     agentconfigs.pop(name, None)
 
+    # Rebuild the matching namespaces set
+    initialize_matching_namespaces()
+
 @kopf.on.create('', 'v1', 'namespaces')
 @kopf.on.update('', 'v1', 'namespaces')
 def handle_namespace_event(body, name, **kwargs):
-    labels = body.get('metadata', {}).get('labels', {})
-    namespaces_cache[name] = labels
-    logger.debug(f"Updated namespace cache for {name}: {labels}")
+    ns_labels = body.get('metadata', {}).get('labels', {})
+    logger.debug(f"Received event for Namespace: {name} with labels: {ns_labels}")
+
+    # Check if the namespace matches any AgentConfig's discoveryLabel
+    namespace_matched = False
+    for discovery_label in agentconfigs.values():
+        key, value = discovery_label.split('=', 1)
+        if ns_labels.get(key) == value:
+            matching_namespaces.add(name)
+            logger.debug(f"Namespace {name} matches discoveryLabel {discovery_label} and added to matching namespaces.")
+            namespace_matched = True
+            break
+    if not namespace_matched and name in matching_namespaces:
+        matching_namespaces.discard(name)
+        logger.debug(f"Namespace {name} no longer matches any discoveryLabel and removed from matching namespaces.")
 
 @kopf.on.delete('', 'v1', 'namespaces')
 def handle_namespace_delete(name, **kwargs):
-    namespaces_cache.pop(name, None)
-    logger.debug(f"Removed namespace {name} from cache")
+    matching_namespaces.discard(name)
+    logger.debug(f"Removed namespace {name} from matching namespaces.")
 
 @kopf.on.event('', 'v1', 'services')
 def handle_service_event(event, namespace, **kwargs):
@@ -75,21 +105,12 @@ def handle_service_event(event, namespace, **kwargs):
     service_name = service['metadata']['name']
     logger.debug(f"Received event for Service: {service_name} in Namespace: {namespace}")
 
-    # Get the labels of the namespace
-    namespace_labels = namespaces_cache.get(namespace, {})
-    if not namespace_labels:
-        logger.debug(f"No labels found for namespace {namespace}")
-        return
-
-    # For each AgentConfig, check if the namespace labels match the discoveryLabel
-    for agentconfig_name, discovery_label in agentconfigs.items():
-        key, value = discovery_label.split('=', 1)
-        if namespace_labels.get(key) == value:
-            logger.info(f"Service {service_name} in namespace {namespace} matches AgentConfig {agentconfig_name}")
-            print_service_details(service)
-            break  # Stop checking after the first match
-        else:
-            logger.debug(f"Namespace {namespace} does not match discoveryLabel {discovery_label} for AgentConfig {agentconfig_name}")
+    # Check if the service's namespace is in the set of matching namespaces
+    if namespace in matching_namespaces:
+        logger.info(f"Service {service_name} in namespace {namespace} matches a discoveryLabel.")
+        print_service_details(service)
+    else:
+        logger.debug(f"Service {service_name} in namespace {namespace} does not match any discoveryLabel.")
 
 def print_service_details(service):
     """
