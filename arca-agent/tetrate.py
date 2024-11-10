@@ -59,7 +59,7 @@ def send_request(method, url, headers, data=None, timeout=None):
             headers=headers,
             json=data,
             timeout=timeout,
-            verify=False
+            verify=False  # Note: SSL verification is disabled; enable it in production
         )
         response.raise_for_status()
         return response.json() if response.content else None
@@ -78,6 +78,16 @@ def send_request(method, url, headers, data=None, timeout=None):
     except Exception as err:
         logger.exception(f"An unexpected error occurred: {err}")
         raise
+
+def recursive_merge(d1, d2):
+    """
+    Recursively merge d2 into d1. Values in d2 will overwrite those in d1.
+    """
+    for key in d2:
+        if key in d1 and isinstance(d1[key], dict) and isinstance(d2[key], dict):
+            recursive_merge(d1[key], d2[key])
+        else:
+            d1[key] = d2[key]
 
 @dataclass
 class Organization:
@@ -105,17 +115,25 @@ class Workspace:
     """Class representing a TSB Workspace within a Tenant."""
     tenant: Tenant
     name: str
-    namespace_selector: dict = None
-
+    workspace_data: dict = None  # Contains properties of the 'workspace' field
 
     def __post_init__(self):
-        if self.namespace_selector is None:
-            self.namespace_selector = {'names': ['*/default']}
+        if self.workspace_data is None:
+            self.workspace_data = {
+                'namespaceSelector': {'names': ['*/default']},
+                'configGenerationMetadata': {
+                    'labels': {"arca.io/managed": "true"}
+                }
+            }
 
     def get(self):
         """Get workspace details."""
         url = f'{TSB_ENDPOINT}/v2/organizations/{self.tenant.organization.name}/tenants/{self.tenant.name}/workspaces/{self.name}'
-        return send_request('GET', url, get_headers())
+        response = send_request('GET', url, get_headers())
+        # Update the object's workspace_data with the retrieved data
+        self.workspace_data = response.get('workspace', self.workspace_data)
+        self.workspace_data['etag'] = response.get('etag')
+        return response
 
     def create(self):
         """Create a new workspace in TSB."""
@@ -123,33 +141,40 @@ class Workspace:
         headers = get_headers()
         payload = {
             'name': self.name,
-            'workspace': {
-                'namespaceSelector': self.namespace_selector,
-                'configGenerationMetadata': {
-                    'labels': { "arca.io/managed": "true" }
-                }
-            }
+            'workspace': self.workspace_data
         }
         logger.info(f"Creating workspace: {self.name}")
-        return send_request('POST', url, headers, payload)
+        response = send_request('POST', url, headers, payload)
+        # Update the object's workspace_data with the created data
+        self.workspace_data = response.get('workspace', self.workspace_data)
+        self.workspace_data['etag'] = response.get('etag')
+        return response
 
-    def update(self):
-        """Update an existing workspace in TSB."""
-        if not etag:
-            logger.error("ETag is required for updating the workspace.")
-            raise ValueError("ETag must be provided to update the workspace.")
+    def update(self, **kwargs):
+        """Update an existing workspace in TSB.
 
+        Any properties provided in kwargs will be updated in the workspace.
+        """
+        # Retrieve the current workspace data
+        self.get()
+        # Merge the updates into the workspace data recursively
+        recursive_merge(self.workspace_data, kwargs)
+
+        # Prepare the payload
+        payload = self.workspace_data
+        
         url = f'{TSB_ENDPOINT}/v2/organizations/{self.tenant.organization.name}/tenants/{self.tenant.name}/workspaces/{self.name}'
         headers = get_headers()
-        headers['If-Match'] = etag
+        logger.info(f"Updating workspace: {self.name} with data: {payload}")
 
-        payload = {
-            'name': self.name,
-            'namespaceSelector': self.namespace_selector
-        }
+        # Send the PUT request with the updated payload
+        updated_response = send_request('PUT', url, headers, payload)
 
-        logger.info(f"Updating workspace: {self.name}")
-        return send_request('PUT', url, headers, payload)
+        # Update the object's workspace_data with the updated data
+        self.workspace_data = updated_response.get('workspace', self.workspace_data)
+        self.workspace_data['etag'] = updated_response.get('etag')
+
+        return updated_response
 
     def delete(self):
         """Delete the workspace."""
@@ -171,11 +196,26 @@ def main():
         tenant_details = tenant.get()
         logger.info(f"Found existing tenant: {tenant_details}")
 
-        # Example usage of the Workspace class (uncomment if needed)
+        # Initialize the Workspace object
         workspace = Workspace(tenant=tenant, name='my-workspace')
-        workspace.create()
+
+        # Get workspace details
         workspace_details = workspace.get()
         logger.info(f"Workspace details: {workspace_details}")
+
+        # Update the workspace with new properties
+        update_properties = {
+            'namespaceSelector': {'names': ['*/new-namespace']},
+            'configGenerationMetadata': {
+                'labels': {
+                    'arca.io/managed': 'true',
+                    'additional-label': 'value'
+                }
+            },
+            'description': 'Updated description'
+        }
+        workspace.update(**update_properties)
+        logger.info(f"Workspace updated successfully: {workspace.workspace_data}")
 
     except Exception as e:
         logger.exception('An error occurred')
