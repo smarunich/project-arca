@@ -1,6 +1,6 @@
 # Dockerfile
 
-FROM python:3.9-slim
+FROM python:3.12-slim
 
 # Install necessary packages
 RUN pip install --no-cache-dir kopf kubernetes
