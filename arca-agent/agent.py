@@ -27,6 +27,7 @@ def namespace_watcher():
             namespaces = core_v1_api.list_namespace()
             for ns in namespaces.items:
                 # Check each namespace against each AgentConfig's discoveryLabel
+                logger.info(f"agentconfigs.items()")
                 for name, discovery_label in agentconfigs.items():
                     key, value = discovery_label.split('=')
                     logger.debug(f"Comparing labels: {ns.metadata.labels.get(key)} == {value}")
