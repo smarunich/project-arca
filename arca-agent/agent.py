@@ -7,7 +7,7 @@ import threading
 import time
 
 # Configure logging
-log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
+log_level = os.getenv('LOG_LEVEL', 'DEBUG').upper()
 logging.basicConfig(level=log_level)
 logger = logging.getLogger(__name__)
 
@@ -29,8 +29,8 @@ def namespace_watcher():
                 # Check each namespace against each AgentConfig's discoveryLabel
                 for name, discovery_label in agentconfigs.items():
                     key, value = discovery_label.split('=')
+                    logger.debug(f"Comparing labels: {ns.metadata.labels.get(key)} == {value}")
                     if ns.metadata.labels.get(key) == value:
-                        logger.info(f"Namespace {ns.metadata.name} matches {name} with label {discovery_label}")
                         # Fetch and log services from this namespace
                         services = core_v1_api.list_namespaced_service(ns.metadata.name)
                         for svc in services.items:
