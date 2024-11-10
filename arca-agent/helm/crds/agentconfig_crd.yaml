@@ -17,8 +17,6 @@ spec:
             spec:
               type: object
               properties:
-                agentSetting:
-                  type: string
                 discoveryLabel:
                   type: string
   scope: Namespaced
