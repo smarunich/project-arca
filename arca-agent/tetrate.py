@@ -106,13 +106,11 @@ class Workspace:
     tenant: Tenant
     name: str
     namespace_selector: dict = None
-    display_name: str = None
+
 
     def __post_init__(self):
         if self.namespace_selector is None:
             self.namespace_selector = {'names': ['*/default']}
-        if self.display_name is None:
-            self.display_name = self.name
 
     def get(self):
         """Get workspace details."""
@@ -125,13 +123,17 @@ class Workspace:
         headers = get_headers()
         payload = {
             'name': self.name,
-            'displayName': self.display_name,
-            'namespaceSelector': self.namespace_selector
+            'workspace': {
+                'namespaceSelector': self.namespace_selector,
+                'configGenerationMetadata': {
+                    'labels': { "arca.io/managed": "true" }
+                }
+            }
         }
         logger.info(f"Creating workspace: {self.name}")
         return send_request('POST', url, headers, payload)
 
-    def update(self, etag):
+    def update(self):
         """Update an existing workspace in TSB."""
         if not etag:
             logger.error("ETag is required for updating the workspace.")
@@ -143,7 +145,6 @@ class Workspace:
 
         payload = {
             'name': self.name,
-            'displayName': self.display_name,
             'namespaceSelector': self.namespace_selector
         }
 
@@ -167,17 +168,12 @@ def main():
         logger.info(f"Found organization: {org_details}")
 
         # Get tenant details
-        try:
-            tenant_details = tenant.get()
-            logger.info(f"Found existing tenant: {tenant_details}")
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 404:
-                logger.error(f"Tenant {tenant.name} not found")
-            else:
-                raise
+        tenant_details = tenant.get()
+        logger.info(f"Found existing tenant: {tenant_details}")
 
         # Example usage of the Workspace class (uncomment if needed)
         workspace = Workspace(tenant=tenant, name='my-workspace')
+        workspace.create()
         workspace_details = workspace.get()
         logger.info(f"Workspace details: {workspace_details}")
 
