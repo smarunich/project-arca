@@ -5,7 +5,7 @@ import logging
 
 # Configure logging
 log_level = os.getenv('LOG_LEVEL', 'DEBUG').upper()
-logger = logging.getLogger('arca-operator')
+logger = logging.getLogger('arca-agent')
 handler = logging.StreamHandler()
 formatter = logging.Formatter('%(asctime)s %(levelname)s [%(name)s] %(message)s')
 handler.setFormatter(formatter)
