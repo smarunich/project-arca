@@ -1,17 +1,13 @@
 import os
 import kopf
-import kubernetes
-from kubernetes import client, config, watch
+from kubernetes import client, config
 import logging
-import threading
-import time
-import traceback
 
 # Configure logging
 log_level = os.getenv('LOG_LEVEL', 'DEBUG').upper()
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('arca-operator')
 handler = logging.StreamHandler()
-formatter = logging.Formatter('%(asctime)s %(levelname)s [%(threadName)s] %(message)s')
+formatter = logging.Formatter('%(asctime)s %(levelname)s [%(name)s] %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 logger.setLevel(log_level)
@@ -23,80 +19,96 @@ except config.ConfigException:
     # For local testing outside the cluster
     config.load_kube_config()
 
-# Create Kubernetes API clients
+# Create Kubernetes API client
 core_v1_api = client.CoreV1Api()
 
-# Global cache and lock
-agentconfigs = {}
-agentconfigs_lock = threading.Lock()
+@kopf.on.startup()
+def configure(settings: kopf.OperatorSettings, **_):
+    """
+    Configure operator settings if necessary.
+    """
+    # Adjust the number of concurrent workers if needed
+    settings.execution.max_workers = 10
 
-def namespace_watcher():
-    while True:
+@kopf.index('operator.arca.io', 'v1alpha1', 'agentconfigs')
+def agentconfigs_indexer(body, **kwargs):
+    """
+    Index AgentConfig resources based on their discoveryLabel.
+    """
+    discovery_label = body.get('spec', {}).get('discoveryLabel')
+    if discovery_label:
         try:
-            # Use a Kubernetes watch to monitor namespace events
-            w = watch.Watch()
-            stream = w.stream(core_v1_api.list_namespace)
-            for event in stream:
-                ns = event['object']
-                event_type = event['type']
-                namespace_name = ns.metadata.name
-                namespace_labels = ns.metadata.labels or {}
+            key, value = discovery_label.split('=', 1)
+            return [ (key, value) ]
+        except ValueError:
+            logger.error(f"Invalid discoveryLabel format in AgentConfig '{body['metadata']['name']}': '{discovery_label}'")
+            return []
+    else:
+        return []
 
-                logger.debug(f"Received event {event_type} for namespace {namespace_name}")
+@kopf.on.create('', 'v1', 'namespaces')
+@kopf.on.update('', 'v1', 'namespaces')
+def namespace_event_handler(spec, name, namespace, logger, indexes, **kwargs):
+    """
+    Handle namespace creation and update events.
+    """
+    namespace_labels = kwargs['body'].get('metadata', {}).get('labels', {})
+    namespace_name = kwargs['body']['metadata']['name']
 
-                with agentconfigs_lock:
-                    for name, discovery_label in agentconfigs.items():
-                        try:
-                            key, value = discovery_label.split('=', 1)
-                        except ValueError:
-                            logger.error(f"Invalid discoveryLabel format in AgentConfig {name}: {discovery_label}")
-                            continue
+    # Find matching AgentConfigs based on the namespace labels
+    for key, value in namespace_labels.items():
+        agentconfigs = indexes['agentconfigs_indexer'].get((key, value), [])
+        for agentconfig_body in agentconfigs:
+            agentconfig_name = agentconfig_body['metadata']['name']
+            discovery_label = agentconfig_body['spec']['discoveryLabel']
+            logger.debug(f"Namespace '{namespace_name}' matches discoveryLabel '{discovery_label}' for AgentConfig '{agentconfig_name}'")
+            process_namespace_services(namespace_name, agentconfig_name)
 
-                        # Check if the namespace matches the discoveryLabel
-                        if namespace_labels.get(key) == value:
-                            if event_type in ['ADDED', 'MODIFIED']:
-                                logger.info(f"Namespace '{namespace_name}' matches AgentConfig '{name}'")
-                                # Process services in this namespace
-                                process_namespace_services(namespace_name)
-                            elif event_type == 'DELETED':
-                                logger.info(f"Namespace '{namespace_name}' deleted")
-                                # Handle namespace deletion if necessary
-        except Exception as e:
-            logger.error(f"Error while watching namespaces: {str(e)}")
-            logger.debug(traceback.format_exc())
-            time.sleep(5)  # Wait before retrying
-
-def process_namespace_services(namespace_name):
+def process_namespace_services(namespace_name, agentconfig_name):
+    """
+    Process services in the given namespace.
+    """
     try:
         services = core_v1_api.list_namespaced_service(namespace_name)
         for svc in services.items:
-            logger.info(f"Service '{svc.metadata.name}' in namespace '{namespace_name}'")
-            # Implement any additional processing required for the services
+            service_name = svc.metadata.name
+            logger.info(f"Processing Service '{service_name}' in namespace '{namespace_name}' for AgentConfig '{agentconfig_name}'")
+            # Implement any additional processing or reconciliation logic for the services
+            process_service(namespace_name, service_name, agentconfig_name)
     except Exception as e:
         logger.error(f"Error processing services in namespace '{namespace_name}': {str(e)}")
-        logger.debug(traceback.format_exc())
 
-# Start the namespace watcher in a separate thread
-threading.Thread(target=namespace_watcher, name='NamespaceWatcher', daemon=True).start()
+def process_service(namespace_name, service_name, agentconfig_name):
+    """
+    Process an individual service.
+    """
+    try:
+        # Implement your service processing logic here
+        # Ensure the logic is idempotent
+        logger.debug(f"Processing Service '{service_name}' in namespace '{namespace_name}' for AgentConfig '{agentconfig_name}'")
+    except Exception as e:
+        logger.error(f"Error processing service '{service_name}' in namespace '{namespace_name}': {str(e)}")
 
-@kopf.on.create('operator.arca.io', 'v1alpha1', 'agentconfigs')
-@kopf.on.update('operator.arca.io', 'v1alpha1', 'agentconfigs')
-def handle_agentconfig(spec, name, **kwargs):
+@kopf.timer('operator.arca.io', 'v1alpha1', 'agentconfigs', interval=60, sharp=True)
+def reconcile_agentconfig(spec, name, logger, **kwargs):
+    """
+    Periodically reconcile namespaces and services based on the AgentConfig's discoveryLabel.
+    """
     discovery_label = spec.get('discoveryLabel')
     if not discovery_label:
-        logger.error("discoveryLabel must be specified in AgentConfig.")
-        raise kopf.PermanentError("discoveryLabel must be specified in AgentConfig.")
+        logger.error(f"AgentConfig '{name}' missing discoveryLabel.")
+        return
 
-    with agentconfigs_lock:
-        agentconfigs[name] = discovery_label
+    try:
+        key, value = discovery_label.split('=', 1)
+    except ValueError:
+        logger.error(f"Invalid discoveryLabel format in AgentConfig '{name}': '{discovery_label}'")
+        return
 
-    logger.info(f"AgentConfig '{name}' created or updated with discoveryLabel: '{discovery_label}'")
-
-@kopf.on.delete('operator.arca.io', 'v1alpha1', 'agentconfigs')
-def handle_agentconfig_delete(name, **kwargs):
-    with agentconfigs_lock:
-        if name in agentconfigs:
-            del agentconfigs[name]
-            logger.info(f"AgentConfig '{name}' deleted from cache.")
-
-    # Implement any additional cleanup if necessary
+    logger.info(f"Reconciling namespaces for AgentConfig '{name}' with discoveryLabel '{discovery_label}'")
+    # List namespaces matching the discoveryLabel
+    namespaces = core_v1_api.list_namespace(label_selector=f"{key}={value}")
+    for ns in namespaces.items:
+        namespace_name = ns.metadata.name
+        logger.debug(f"Reconciling namespace '{namespace_name}' for AgentConfig '{name}'")
+        process_namespace_services(namespace_name, name)
