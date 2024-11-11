@@ -2,7 +2,7 @@ import os
 import kopf
 from kubernetes import client, config as kube_config
 import logging
-from tetrate import TetrateConnection
+from tetrate import TetrateConnection, Organization, Tenant, Workspace
 
 # Configure logging
 log_level = os.getenv('LOG_LEVEL', 'DEBUG').upper()
@@ -63,6 +63,24 @@ def initialize_tetrate_connection(tetrate_config):
         )
         logger.info("Tetrate connection initialized")
 
+def create_workspace(namespace_name):
+    """Create a workspace in Tetrate based on the namespace name."""
+    if not tetrate:
+        logger.warning("Tetrate connection not initialized")
+        return
+
+    try:
+        # Create organization and tenant objects
+        organization = Organization(tetrate.organization)
+        tenant = Tenant(organization, tetrate.tenant)
+
+        # Initialize the Workspace object
+        workspace = Workspace(tenant=tenant, name=namespace_name)
+        response = workspace.create()
+        logger.info(f"Workspace '{namespace_name}' created successfully: {response}")
+    except Exception as e:
+        logger.error(f"Error creating workspace '{namespace_name}': {str(e)}")
+
 @kopf.on.create('operator.arca.io', 'v1alpha1', 'agentconfigs')
 @kopf.on.update('operator.arca.io', 'v1alpha1', 'agentconfigs')
 def handle_agentconfig(spec, name, **kwargs):
@@ -74,21 +92,13 @@ def handle_agentconfig(spec, name, **kwargs):
         return
 
     try:
+        logger.debug(f"Processing AgentConfig '{name}' with spec: {spec}")
         agent_config = process_agentconfig(name, spec)
         initialize_tetrate_connection(agent_config['tetrate'])
         logger.info(f"Configuration updated for AgentConfig '{name}'")
     except Exception as e:
         logger.error(f"Failed to process AgentConfig '{name}': {str(e)}")
         raise kopf.PermanentError(f"Configuration failed: {str(e)}")
-
-@kopf.on.delete('operator.arca.io', 'v1alpha1', 'agentconfigs')
-def delete_agentconfig(name, **kwargs):
-    """Handle deletion of AgentConfig resources."""
-    global agent_config
-
-    if name == DEFAULT_CONFIG_NAME:
-        agent_config = None
-        logger.info("Default AgentConfig removed")
 
 @kopf.index('operator.arca.io', 'v1alpha1', 'agentconfigs')
 def agentconfigs_indexer(body, **kwargs):
@@ -120,6 +130,7 @@ def namespace_event_handler(name, namespace, logger, indexes, **kwargs):
             if agentconfig_body['metadata'].get('name') == DEFAULT_CONFIG_NAME:
                 logger.debug(f"Processing namespace '{namespace_name}'")
                 process_namespace_services(namespace_name)
+                create_workspace(namespace_name)
 
 def process_namespace_services(namespace_name):
     """Process services in the given namespace."""
@@ -127,22 +138,9 @@ def process_namespace_services(namespace_name):
         services = core_v1_api.list_namespaced_service(namespace_name)
         for svc in services.items:
             service_name = svc.metadata.name
-            logger.info(f"Processing Service '{service_name}' in namespace '{namespace_name}'")
-            process_service(namespace_name, service_name)
+            logger.info(f"Service '{service_name}' found in namespace '{namespace_name}'")
     except Exception as e:
         logger.error(f"Error processing services in namespace '{namespace_name}': {str(e)}")
-
-def process_service(namespace_name, service_name):
-    """Process an individual service."""
-    if not tetrate:
-        logger.warning("Tetrate connection not initialized")
-        return
-
-    try:
-        # Add your service processing logic here
-        logger.debug(f"Processing Service '{service_name}' in namespace '{namespace_name}'")
-    except Exception as e:
-        logger.error(f"Error processing service '{service_name}': {str(e)}")
 
 @kopf.timer('operator.arca.io', 'v1alpha1', 'agentconfigs', interval=60, sharp=True)
 def reconcile_agentconfig(spec, name, logger, **kwargs):
@@ -160,5 +158,6 @@ def reconcile_agentconfig(spec, name, logger, **kwargs):
             namespace_name = ns.metadata.name
             logger.debug(f"Reconciling namespace '{namespace_name}'")
             process_namespace_services(namespace_name)
+            create_workspace(namespace_name)
     except Exception as e:
         logger.error(f"Reconciliation failed: {str(e)}")

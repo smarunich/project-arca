@@ -11,3 +11,6 @@ spec:
     password: Tetrate123
     organization: tetrate
     tenant: arca
+    clusterName: aks-arca-eastus-1
+
+
