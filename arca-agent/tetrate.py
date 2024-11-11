@@ -19,13 +19,13 @@ logger = configure_logging()
 
 class TetrateConnection:
     """Class to manage Tetrate connection and authentication."""
-    def __init__(self):
-        self.endpoint = os.getenv('TETRATE_ENDPOINT', 'https://your-tsb-server.com')
-        self.api_token = os.getenv('TETRATE_API_TOKEN')
-        self.username = os.getenv('TETRATE_USERNAME')
-        self.password = os.getenv('TETRATE_PASSWORD')
-        self.organization = os.getenv('TETRATE_ORGANIZATION', 'tetrate')
-        self.tenant = os.getenv('TETRATE_TENANT', 'arca')
+    def __init__(self, endpoint=None, api_token=None, username=None, password=None, organization=None, tenant=None):
+        self.endpoint = endpoint or os.getenv('TETRATE_ENDPOINT', 'https://your-tsb-server.com')
+        self.api_token = api_token or os.getenv('TETRATE_API_TOKEN')
+        self.username = username or os.getenv('TETRATE_USERNAME')
+        self.password = password or os.getenv('TETRATE_PASSWORD')
+        self.organization = organization or os.getenv('TETRATE_ORGANIZATION', 'tetrate')
+        self.tenant = tenant or os.getenv('TETRATE_TENANT', 'arca')
 
     def get_headers(self):
         """Construct HTTP headers with appropriate authentication."""

@@ -12,5 +12,3 @@ spec:
     organization: tetrate
     tenant: arca
     clusterName: aks-arca-eastus-1
-
-
