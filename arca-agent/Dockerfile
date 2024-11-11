@@ -6,7 +6,9 @@ FROM python:3.12-slim
 RUN pip install --no-cache-dir kopf kubernetes
 
 # Copy your agent code
+COPY tetrate.py /tetrate.py
 COPY agent.py /agent.py
+
 
 # Set the working directory
 WORKDIR /

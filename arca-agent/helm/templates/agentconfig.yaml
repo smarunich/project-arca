@@ -2,6 +2,6 @@
 apiVersion: operator.arca.io/v1alpha1
 kind: AgentConfig
 metadata:
-  name: {{ include "arca-agent.fullname" . }}
+  name: default
 spec:
   discoveryLabel: "arca.io/managed=true"
