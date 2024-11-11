@@ -2,8 +2,6 @@ import os
 import kopf
 from kubernetes import client, config as kube_config
 import logging
-from tetrate import TetrateConnection, Organization, Tenant
-import requests
 
 # Configure logging
 log_level = os.getenv('LOG_LEVEL', 'DEBUG').upper()
@@ -27,7 +25,6 @@ except kube_config.ConfigException:
 core_v1_api = client.CoreV1Api()
 
 # Global variables
-tetrate = None
 manager_config = None
 
 MANAGER_CONFIG_NAME = "default"
@@ -59,32 +56,6 @@ def process_managerconfig(spec: dict) -> dict:
             raise ValueError(f"Invalid discoveryLabel format: '{config['discovery_label']}'")
 
     return config
-
-def initialize_tetrate_connection(tetrate_config):
-    """Initialize Tetrate connection if configuration is present."""
-    if not tetrate_config:
-        logger.error("No Tetrate configuration provided")
-        return False
-
-    try:
-        logger.debug(f"Initializing Tetrate connection with config: {tetrate_config}")
-        TetrateConnection(
-            endpoint=tetrate_config.get('endpoint'),
-            api_token=tetrate_config.get('apiToken'),
-            username=tetrate_config.get('username'),
-            password=tetrate_config.get('password'),
-            organization=tetrate_config.get('organization'),
-            tenant=tetrate_config.get('tenant')
-        )
-        
-        # Test the connection
-        org = Organization(TetrateConnection.get_instance().organization)
-        org.get()
-        logger.info("Tetrate connection initialized and verified successfully")
-        return True
-    except Exception as e:
-        logger.error(f"Failed to initialize Tetrate connection: {str(e)}")
-        raise
 
 def create_namespace(name: str, labels: dict = None, annotations: dict = None):
     """Create a namespace with given name and metadata."""
@@ -131,7 +102,6 @@ def handle_managerconfig(spec, name, meta, status, **kwargs):
     try:
         logger.debug(f"Handling ManagerConfig with spec: {spec}")
         manager_config = process_managerconfig(spec)
-        initialize_tetrate_connection(manager_config['tetrate'])
         logger.info("Configuration updated for ManagerConfig")
     except Exception as e:
         logger.error(f"Failed to process ManagerConfig: {str(e)}")
