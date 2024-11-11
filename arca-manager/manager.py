@@ -85,8 +85,80 @@ def create_namespace(name: str, labels: dict = None, annotations: dict = None):
             else:
                 raise
                 
+        # Create application gateway for the namespace
+        create_application_gateway(name)
+                
     except Exception as e:
         logger.error(f"Error managing namespace {name}: {str(e)}")
+        raise
+
+def create_application_gateway(namespace_name: str):
+    """Create an application gateway for the namespace."""
+    try:
+        # Create Gateway custom resource
+        api = client.CustomObjectsApi()
+        gateway = {
+            "apiVersion": "install.tetrate.io/v1alpha1",
+            "kind": "Gateway",
+            "metadata": {
+                "name": f"{namespace_name}-gateway",
+                "namespace": namespace_name,
+                "labels": {
+                    "arca.io/managed": "true",
+                    "arca.io/namespace": namespace_name
+                }
+            },
+            "spec": {
+                "type": "UNIFIED",
+                "kubeSpec": {
+                    "service": {
+                        "type": "NodePort",
+                        "annotations": {
+                            "traffic.istio.io/nodeSelector": '{"kubernetes.io/os": "linux"}'
+                        }
+                    }
+                }
+            }
+        }
+        
+        try:
+            # Try to get existing gateway
+            api.get_namespaced_custom_object(
+                group="install.tetrate.io",
+                version="v1alpha1",
+                namespace=namespace_name,
+                plural="gateways",
+                name=f"{namespace_name}-gateway"
+            )
+            logger.info(f"Gateway already exists in namespace {namespace_name}")
+            
+            # Update existing gateway
+            api.patch_namespaced_custom_object(
+                group="install.tetrate.io",
+                version="v1alpha1",
+                namespace=namespace_name,
+                plural="gateways",
+                name=f"{namespace_name}-gateway",
+                body=gateway
+            )
+            logger.info(f"Updated gateway in namespace {namespace_name}")
+            
+        except client.exceptions.ApiException as e:
+            if e.status == 404:
+                # Create new gateway
+                api.create_namespaced_custom_object(
+                    group="install.tetrate.io",
+                    version="v1alpha1",
+                    namespace=namespace_name,
+                    plural="gateways",
+                    body=gateway
+                )
+                logger.info(f"Created gateway in namespace {namespace_name}")
+            else:
+                raise
+                
+    except Exception as e:
+        logger.error(f"Error managing gateway for namespace {namespace_name}: {str(e)}")
         raise
 
 @kopf.on.create('operator.arca.io', 'v1alpha1', 'managerconfigs')
