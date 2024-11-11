@@ -113,12 +113,29 @@ def create_workspace(namespace_name):
         # Initialize objects
         organization = Organization(tetrate.organization)
         tenant = Tenant(organization, tetrate.tenant)
-        workspace = Workspace(tenant=tenant, name=namespace_name)
+        
+        # Configure workspace data
+        workspace_data = {
+            'namespaceSelector': {
+                'names': [f'{agent_config['tetrate'].get('clusterName')}/{namespace_name}']  # Match the specific namespace
+            },
+            'configGenerationMetadata': {
+                'labels': {
+                    "arca.io/managed": "true",
+                    "arca.io/namespace": namespace_name
+                }
+            },
+            'description': f'Workspace for namespace {namespace_name}',
+            'displayName': f'Workspace {namespace_name}'
+        }
+        
+        # Create workspace with custom configuration
+        workspace = Workspace(tenant=tenant, name=namespace_name, workspace_data=workspace_data)
         
         try:
             # Check if workspace exists
-            workspace.get()
-            logger.info(f"Workspace '{namespace_name}' already exists")
+            existing = workspace.get()
+            logger.info(f"Workspace '{namespace_name}' already exists: {existing}")
             return
         except requests.exceptions.HTTPError as e:
             if e.response.status_code != 404:  # If error is not "Not Found"
