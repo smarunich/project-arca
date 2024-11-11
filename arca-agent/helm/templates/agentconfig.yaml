@@ -5,3 +5,9 @@ metadata:
   name: default
 spec:
   discoveryLabel: "arca.io/managed=true"
+  tetrate: 
+    endpoint: https://arca.azure.sandbox.tetrate.io/
+    username: admin
+    password: Tetrate123
+    organization: tetrate
+    tenant: arca
