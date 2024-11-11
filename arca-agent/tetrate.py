@@ -234,55 +234,48 @@ class WorkspaceSetting:
         tetrate = TetrateConnection.get_instance()
         url = (f'{tetrate.endpoint}/v2/organizations/{self.workspace.tenant.organization.name}/'
                f'tenants/{self.workspace.tenant.name}/workspaces/{self.workspace.name}/settings/{self.name}')
-        response = tetrate.send_request('GET', url)
-        self.setting_data = response.get('spec', {})
-        return response
-
-    def create_or_update(self, spec: dict):
-        """Create or update workspace setting with given spec."""
-        tetrate = TetrateConnection.get_instance()
-        
         try:
-            # Try to get existing setting
-            existing = self.get()
-            logger.debug(f"Found existing setting: {existing}")
-            
-            # Update existing setting
-            url = (f'{tetrate.endpoint}/v2/organizations/{self.workspace.tenant.organization.name}/'
-                   f'tenants/{self.workspace.tenant.name}/workspaces/{self.workspace.name}/settings/{self.name}')
-            
-            # Merge existing with new spec
-            updated_spec = self.setting_data.copy()
-            recursive_merge(updated_spec, spec)
-            
-            payload = {
-                'name': self.name,
-                'settings': updated_spec
-            }
-            
-            logger.info(f"Updating workspace setting: {self.name}")
-            logger.debug(f"Update payload: {payload}")
-            response = tetrate.send_request('PUT', url, payload)
-            
+            response = tetrate.send_request('GET', url)
+            self.setting_data = response.get('settings', {})
+            return response
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:
-                # Setting doesn't exist, create new
-                url = (f'{tetrate.endpoint}/v2/organizations/{self.workspace.tenant.organization.name}/'
-                       f'tenants/{self.workspace.tenant.name}/workspaces/{self.workspace.name}/settings')
-                
-                payload = {
-                    'name': self.name,
-                    'settings': spec
-                }
-                
-                logger.info(f"Creating new workspace setting: {self.name}")
-                logger.debug(f"Create payload: {payload}")
-                response = tetrate.send_request('POST', url, payload)
-            else:
-                raise
+                return None
+            raise
+
+    def create_or_update(self, desired_settings: dict):
+        """Create or update workspace setting with given settings."""
+        tetrate = TetrateConnection.get_instance()
+        base_url = (f'{tetrate.endpoint}/v2/organizations/{self.workspace.tenant.organization.name}/'
+                   f'tenants/{self.workspace.tenant.name}/workspaces/{self.workspace.name}/settings')
         
-        self.setting_data = response.get('settings', {})
-        return response
+        # Try to get existing settings
+        existing = self.get()
+        
+        if existing:
+            # Merge existing with desired settings
+            merged_settings = existing.get('settings', {}).copy()
+            logger.debug(f"Existing settings before merge: {merged_settings}")
+            recursive_merge(merged_settings, desired_settings)
+            logger.debug(f"Settings after merge: {merged_settings}")
+            
+            # Update existing settings
+            url = f"{base_url}/{self.name}"
+            logger.info(f"Updating workspace setting: {self.name}")
+            response = tetrate.send_request('PUT', url, merged_settings)
+            self.setting_data = merged_settings
+            return response
+        else:
+            # Create new settings
+            logger.info(f"Creating new workspace setting: {self.name}")
+            payload = {
+                'name': self.name,
+                'settings': desired_settings
+            }
+            logger.debug(f"Create payload: {payload}")
+            response = tetrate.send_request('POST', base_url, payload)
+            self.setting_data = desired_settings
+            return response
 
     def delete(self):
         """Delete the workspace setting."""
