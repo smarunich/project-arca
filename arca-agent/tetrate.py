@@ -180,7 +180,7 @@ class Workspace:
         logger.info(f"Deleting workspace: {self.name}")
         return tsb.send_request('DELETE', url)
 
-def main():
+def test():
     try:
         # Create organization and tenant objects
         organization = Organization(tsb.organization)
@@ -220,5 +220,3 @@ def main():
         logger.exception('An error occurred')
         sys.exit(1)
 
-if __name__ == '__main__':
-    main()
