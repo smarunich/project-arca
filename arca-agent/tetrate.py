@@ -90,9 +90,33 @@ class TetrateConnection:
 def recursive_merge(d1, d2):
     """
     Recursively merge d2 into d1. Values in d2 will overwrite those in d1.
+    Special handling for namespaceSelector.names to combine lists.
     """
     for key in d2:
-        if key in d1 and isinstance(d1[key], dict) and isinstance(d2[key], dict):
+        # Special handling for namespaceSelector.names
+        if key == 'namespaceSelector' and isinstance(d1.get(key), dict) and isinstance(d2[key], dict):
+            if 'names' not in d1[key]:
+                d1[key]['names'] = []
+            if 'names' in d2[key]:
+                # Get existing and new names
+                existing_names = d1[key]['names']
+                new_names = d2[key]['names']
+                
+                # Combine lists while preserving both existing and new entries
+                all_names = existing_names.copy()  # Start with existing names
+                for name in new_names:
+                    if name not in all_names:  # Only add if not already present
+                        all_names.append(name)
+                
+                # Update the names list
+                d1[key]['names'] = all_names
+                
+                # Handle other namespaceSelector fields
+                for subkey in d2[key]:
+                    if subkey != 'names':
+                        d1[key][subkey] = d2[key][subkey]
+        # Regular recursive merge for other keys
+        elif isinstance(d1.get(key), dict) and isinstance(d2[key], dict):
             recursive_merge(d1[key], d2[key])
         else:
             d1[key] = d2[key]
@@ -130,7 +154,7 @@ class Workspace:
     def __post_init__(self):
         if self.workspace_data is None:
             self.workspace_data = {
-                'namespaceSelector': {'names': [f'*/{self.name}']},
+                'namespaceSelector': {'names': []},
                 'configGenerationMetadata': {
                     'labels': {"arca.io/managed": "true"}
                 }
@@ -141,48 +165,51 @@ class Workspace:
         tetrate = TetrateConnection.get_instance()
         url = f'{tetrate.endpoint}/v2/organizations/{self.tenant.organization.name}/tenants/{self.tenant.name}/workspaces/{self.name}'
         response = tetrate.send_request('GET', url)
-        # Update the object's workspace_data with the retrieved data
-        self.workspace_data = response.get('workspace', self.workspace_data)
-        self.workspace_data['etag'] = response.get('etag')
-        return response
-
-    def create(self):
-        """Create a new workspace in TSB."""
-        tetrate = TetrateConnection.get_instance()
-        url = f'{tetrate.endpoint}/v2/organizations/{self.tenant.organization.name}/tenants/{self.tenant.name}/workspaces'
-        payload = {
-            'name': self.name,
-            'workspace': self.workspace_data
-        }
-        logger.info(f"Creating workspace: {self.name}")
-        response = tetrate.send_request('POST', url, payload)
-        # Update the object's workspace_data with the created data
-        self.workspace_data = response.get('workspace', self.workspace_data)
-        self.workspace_data['etag'] = response.get('etag')
+        # The response is the workspace data directly, not nested under 'workspace'
+        self.workspace_data = response
         return response
 
     def update(self, **kwargs):
         """Update an existing workspace in TSB."""
         tetrate = TetrateConnection.get_instance()
-        # Retrieve the current workspace data
-        self.get()
-        # Merge the updates into the workspace data recursively
-        recursive_merge(self.workspace_data, kwargs)
-
-        # Prepare the payload
-        payload = self.workspace_data
         
+        # Get current state if we don't have it
+        if not self.workspace_data:
+            self.get()
+        
+        # Create a copy of current data
+        updated_data = self.workspace_data.copy()
+        logger.debug(f"Current workspace data before merge: {updated_data}")
+        
+        # Merge the updates
+        recursive_merge(updated_data, kwargs)
+        logger.debug(f"Merged workspace data: {updated_data}")
+        
+        # Prepare the payload
         url = f'{tetrate.endpoint}/v2/organizations/{self.tenant.organization.name}/tenants/{self.tenant.name}/workspaces/{self.name}'
-        logger.info(f"Updating workspace: {self.name} with data: {payload}")
+        logger.info(f"Updating workspace: {self.name} with data: {updated_data}")
 
         # Send the PUT request with the updated payload
-        updated_response = tetrate.send_request('PUT', url, payload)
+        updated_response = tetrate.send_request('PUT', url, updated_data)
 
-        # Update the object's workspace_data with the updated data
-        self.workspace_data = updated_response.get('workspace', self.workspace_data)
-        self.workspace_data['etag'] = updated_response.get('etag')
-
+        # Update the object's workspace_data with the response
+        self.workspace_data = updated_response
         return updated_response
+
+    def create(self):
+        """Create a new workspace in TSB."""
+        tetrate = TetrateConnection.get_instance()
+        url = f'{tetrate.endpoint}/v2/organizations/{self.tenant.organization.name}/tenants/{self.tenant.name}/workspaces'
+        
+        logger.info(f"Creating workspace: {self.name} with data: {self.workspace_data}")
+        response = tetrate.send_request('POST', url, {
+            'name': self.name,
+            'workspace': self.workspace_data
+        })
+        
+        # Update the object's workspace_data with the created data
+        self.workspace_data = response
+        return response
 
     def delete(self):
         """Delete the workspace."""

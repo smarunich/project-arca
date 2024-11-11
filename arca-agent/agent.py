@@ -2,7 +2,7 @@ import os
 import kopf
 from kubernetes import client, config as kube_config
 import logging
-from tetrate import TetrateConnection, Organization, Tenant, Workspace
+from tetrate import TetrateConnection, Organization, Tenant, Workspace, recursive_merge
 import requests
 
 # Configure logging
@@ -105,7 +105,7 @@ def initialize_tetrate_connection(tetrate_config):
         raise
 
 def create_workspace(namespace_name):
-    """Create a workspace in Tetrate based on the namespace name if it doesn't exist."""
+    """Create or update a workspace in Tetrate based on the namespace name."""
     try:
         tetrate = TetrateConnection.get_instance()
         logger.debug(f"Checking workspace for namespace: {namespace_name}")
@@ -114,10 +114,10 @@ def create_workspace(namespace_name):
         organization = Organization(tetrate.organization)
         tenant = Tenant(organization, tetrate.tenant)
         
-        # Configure workspace data
-        workspace_data = {
+        # Configure desired workspace data
+        desired_workspace_data = {
             'namespaceSelector': {
-                'names': [f'{agent_config['tetrate'].get('clusterName')}/{namespace_name}']  # Match the specific namespace
+                'names': [f'{agent_config["tetrate"].get("clusterName", "*")}/{namespace_name}']
             },
             'configGenerationMetadata': {
                 'labels': {
@@ -129,22 +129,28 @@ def create_workspace(namespace_name):
             'displayName': f'Workspace {namespace_name}'
         }
         
-        # Create workspace with custom configuration
-        workspace = Workspace(tenant=tenant, name=namespace_name, workspace_data=workspace_data)
+        # Create workspace instance
+        workspace = Workspace(tenant=tenant, name=namespace_name)
         
         try:
             # Check if workspace exists
-            existing = workspace.get()
-            logger.info(f"Workspace '{namespace_name}' already exists: {existing}")
-            return
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code != 404:  # If error is not "Not Found"
-                raise
+            existing_response = workspace.get()
+            logger.info(f"Workspace '{namespace_name}' exists, checking for updates")
+            logger.debug(f"Existing workspace data: {existing_response}")
             
-            # Workspace doesn't exist, create it
-            logger.info(f"Creating new workspace for namespace: {namespace_name}")
-            response = workspace.create()
-            logger.info(f"Workspace '{namespace_name}' created successfully: {response}")
+            # Update workspace with merged configuration
+            workspace.update(**desired_workspace_data)
+            logger.info(f"Workspace '{namespace_name}' updated successfully")
+            
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 404:
+                # Workspace doesn't exist, create it
+                logger.info(f"Creating new workspace for namespace: {namespace_name}")
+                workspace.workspace_data = desired_workspace_data
+                response = workspace.create()
+                logger.info(f"Workspace '{namespace_name}' created successfully: {response}")
+            else:
+                raise
             
     except ValueError as e:
         logger.warning(f"Tetrate connection not initialized: {str(e)}")
