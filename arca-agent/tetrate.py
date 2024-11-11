@@ -19,6 +19,15 @@ logger = configure_logging()
 
 class TetrateConnection:
     """Class to manage Tetrate connection and authentication."""
+    _instance = None  # Class variable to store the singleton instance
+
+    @classmethod
+    def get_instance(cls):
+        """Get the singleton instance of TetrateConnection."""
+        if cls._instance is None:
+            raise ValueError("TetrateConnection not initialized")
+        return cls._instance
+
     def __init__(self, endpoint=None, api_token=None, username=None, password=None, organization=None, tenant=None):
         self.endpoint = endpoint or os.getenv('TETRATE_ENDPOINT', 'https://your-tsb-server.com')
         self.api_token = api_token or os.getenv('TETRATE_API_TOKEN')
@@ -26,6 +35,9 @@ class TetrateConnection:
         self.password = password or os.getenv('TETRATE_PASSWORD')
         self.organization = organization or os.getenv('TETRATE_ORGANIZATION', 'tetrate')
         self.tenant = tenant or os.getenv('TETRATE_TENANT', 'arca')
+        
+        # Set this instance as the singleton instance
+        TetrateConnection._instance = self
 
     def get_headers(self):
         """Construct HTTP headers with appropriate authentication."""
@@ -75,9 +87,6 @@ class TetrateConnection:
             logger.exception(f"An unexpected error occurred: {err}")
             raise
 
-# Initialize global Tetrate connection
-tetrate = TetrateConnection()
-
 def recursive_merge(d1, d2):
     """
     Recursively merge d2 into d1. Values in d2 will overwrite those in d1.
@@ -95,6 +104,7 @@ class Organization:
 
     def get(self):
         """Retrieve organization details from the TSB API."""
+        tetrate = TetrateConnection.get_instance()
         url = f'{tetrate.endpoint}/v2/organizations/{self.name}'
         return tetrate.send_request('GET', url)
 
@@ -106,6 +116,7 @@ class Tenant:
 
     def get(self):
         """Retrieve tenant details from the TSB API."""
+        tetrate = TetrateConnection.get_instance()
         url = f'{tetrate.endpoint}/v2/organizations/{self.organization.name}/tenants/{self.name}'
         return tetrate.send_request('GET', url)
 
@@ -114,12 +125,12 @@ class Workspace:
     """Class representing a TSB Workspace within a Tenant."""
     tenant: Tenant
     name: str
-    workspace_data: dict = None  # Contains properties of the 'workspace' field
+    workspace_data: dict = None
 
     def __post_init__(self):
         if self.workspace_data is None:
             self.workspace_data = {
-                'namespaceSelector': {'names': ['*/default']},
+                'namespaceSelector': {'names': [f'*/{self.name}']},  # Updated to use workspace name
                 'configGenerationMetadata': {
                     'labels': {"arca.io/managed": "true"}
                 }
@@ -218,4 +229,3 @@ def test():
     except Exception as e:
         logger.exception('An error occurred')
         sys.exit(1)
-

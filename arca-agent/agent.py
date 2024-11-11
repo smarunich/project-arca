@@ -61,10 +61,30 @@ def process_agentconfig(spec: dict) -> dict:
 
 def initialize_tetrate_connection(tetrate_config):
     """Initialize Tetrate connection if configuration is present."""
-    global tetrate
-    if tetrate_config:
+    if not tetrate_config:
+        logger.error("No Tetrate configuration provided")
+        return False
+
+    # Check endpoint
+    if not tetrate_config.get('endpoint'):
+        logger.error("Tetrate endpoint is required")
+        return False
+
+    # Check authentication methods
+    has_valid_auth = False
+    if tetrate_config.get('apiToken'):
+        has_valid_auth = True
+    elif tetrate_config.get('username') and tetrate_config.get('password'):
+        has_valid_auth = True
+
+    if not has_valid_auth:
+        logger.error("Either apiToken or username/password combination is required for Tetrate authentication")
+        return False
+
+    try:
         logger.debug(f"Initializing Tetrate connection with config: {tetrate_config}")
-        tetrate = TetrateConnection(
+        # Create new TetrateConnection instance
+        TetrateConnection(
             endpoint=tetrate_config.get('endpoint'),
             api_token=tetrate_config.get('apiToken'),
             username=tetrate_config.get('username'),
@@ -72,21 +92,29 @@ def initialize_tetrate_connection(tetrate_config):
             organization=tetrate_config.get('organization'),
             tenant=tetrate_config.get('tenant')
         )
-        logger.info("Tetrate connection initialized")
+        
+        # Test the connection
+        org = Organization(TetrateConnection.get_instance().organization)
+        org.get()  # This will throw an error if credentials are invalid
+        
+        logger.info("Tetrate connection initialized and verified successfully")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to initialize Tetrate connection: {str(e)}")
+        raise
 
 def create_workspace(namespace_name):
     """Create a workspace in Tetrate based on the namespace name."""
-    if not tetrate:
-        logger.warning("Tetrate connection not initialized")
-        return
-
     try:
+        tetrate = TetrateConnection.get_instance()
         logger.debug(f"Creating workspace for namespace: {namespace_name}")
         organization = Organization(tetrate.organization)
         tenant = Tenant(organization, tetrate.tenant)
         workspace = Workspace(tenant=tenant, name=namespace_name)
         response = workspace.create()
         logger.info(f"Workspace '{namespace_name}' created successfully: {response}")
+    except ValueError as e:
+        logger.warning(f"Tetrate connection not initialized: {str(e)}")
     except Exception as e:
         logger.error(f"Error creating workspace '{namespace_name}': {str(e)}")
 
