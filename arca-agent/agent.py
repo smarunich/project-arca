@@ -2,7 +2,7 @@ import os
 import kopf
 from kubernetes import client, config as kube_config
 import logging
-from tetrate import TSBConnection
+from tetrate import TetrateConnection
 
 # Configure logging
 log_level = os.getenv('LOG_LEVEL', 'DEBUG').upper()
@@ -23,7 +23,7 @@ except kube_config.ConfigException:
 core_v1_api = client.CoreV1Api()
 
 # Global variables
-tsb = None
+tetrate = None
 agent_config = None
 DEFAULT_CONFIG_NAME = "default"
 
@@ -37,7 +37,7 @@ def process_agentconfig(name: str, spec: dict) -> dict:
     config = {
         'name': name,
         'discovery_label': spec.get('discoveryLabel'),
-        'tsb': spec.get('tetrate')
+        'tetrate': spec.get('tetrate')
     }
 
     if config['discovery_label']:
@@ -49,19 +49,19 @@ def process_agentconfig(name: str, spec: dict) -> dict:
 
     return config
 
-def initialize_tsb_connection(tsb_config):
-    """Initialize TSB connection if configuration is present."""
-    global tsb
-    if tsb_config:
-        tsb = TSBConnection(
-            endpoint=tsb_config.get('endpoint'),
-            api_token=tsb_config.get('apiToken'),
-            username=tsb_config.get('username'),
-            password=tsb_config.get('password'),
-            organization=tsb_config.get('organization'),
-            tenant=tsb_config.get('tenant')
+def initialize_tetrate_connection(tetrate_config):
+    """Initialize Tetrate connection if configuration is present."""
+    global tetrate
+    if tetrate_config:
+        tetrate = TetrateConnection(
+            endpoint=tetrate_config.get('endpoint'),
+            api_token=tetrate_config.get('apiToken'),
+            username=tetrate_config.get('username'),
+            password=tetrate_config.get('password'),
+            organization=tetrate_config.get('organization'),
+            tenant=tetrate_config.get('tenant')
         )
-        logger.info("TSB connection initialized")
+        logger.info("Tetrate connection initialized")
 
 @kopf.on.create('operator.arca.io', 'v1alpha1', 'agentconfigs')
 @kopf.on.update('operator.arca.io', 'v1alpha1', 'agentconfigs')
@@ -75,7 +75,7 @@ def handle_agentconfig(spec, name, **kwargs):
 
     try:
         agent_config = process_agentconfig(name, spec)
-        initialize_tsb_connection(agent_config['tsb'])
+        initialize_tetrate_connection(agent_config['tetrate'])
         logger.info(f"Configuration updated for AgentConfig '{name}'")
     except Exception as e:
         logger.error(f"Failed to process AgentConfig '{name}': {str(e)}")
@@ -134,8 +134,8 @@ def process_namespace_services(namespace_name):
 
 def process_service(namespace_name, service_name):
     """Process an individual service."""
-    if not tsb:
-        logger.warning("TSB connection not initialized")
+    if not tetrate:
+        logger.warning("Tetrate connection not initialized")
         return
 
     try:

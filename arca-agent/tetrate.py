@@ -1,5 +1,4 @@
 import os
-import sys
 import requests
 import logging
 from dataclasses import dataclass
@@ -18,15 +17,15 @@ def configure_logging():
 
 logger = configure_logging()
 
-class TSBConnection:
-    """Class to manage TSB connection and authentication."""
+class TetrateConnection:
+    """Class to manage Tetrate connection and authentication."""
     def __init__(self):
-        self.endpoint = os.getenv('TSB_ENDPOINT', 'https://your-tsb-server.com')
-        self.api_token = os.getenv('TSB_API_TOKEN')
-        self.username = os.getenv('TSB_USERNAME')
-        self.password = os.getenv('TSB_PASSWORD')
-        self.organization = os.getenv('TSB_ORGANIZATION', 'tetrate')
-        self.tenant = os.getenv('TSB_TENANT', 'arca')
+        self.endpoint = os.getenv('TETRATE_ENDPOINT', 'https://your-tsb-server.com')
+        self.api_token = os.getenv('TETRATE_API_TOKEN')
+        self.username = os.getenv('TETRATE_USERNAME')
+        self.password = os.getenv('TETRATE_PASSWORD')
+        self.organization = os.getenv('TETRATE_ORGANIZATION', 'tetrate')
+        self.tenant = os.getenv('TETRATE_TENANT', 'arca')
 
     def get_headers(self):
         """Construct HTTP headers with appropriate authentication."""
@@ -76,8 +75,8 @@ class TSBConnection:
             logger.exception(f"An unexpected error occurred: {err}")
             raise
 
-# Initialize global TSB connection
-tsb = TSBConnection()
+# Initialize global Tetrate connection
+tetrate = TetrateConnection()
 
 def recursive_merge(d1, d2):
     """
@@ -96,8 +95,8 @@ class Organization:
 
     def get(self):
         """Retrieve organization details from the TSB API."""
-        url = f'{tsb.endpoint}/v2/organizations/{self.name}'
-        return tsb.send_request('GET', url)
+        url = f'{tetrate.endpoint}/v2/organizations/{self.name}'
+        return tetrate.send_request('GET', url)
 
 @dataclass
 class Tenant:
@@ -107,8 +106,8 @@ class Tenant:
 
     def get(self):
         """Retrieve tenant details from the TSB API."""
-        url = f'{tsb.endpoint}/v2/organizations/{self.organization.name}/tenants/{self.name}'
-        return tsb.send_request('GET', url)
+        url = f'{tetrate.endpoint}/v2/organizations/{self.organization.name}/tenants/{self.name}'
+        return tetrate.send_request('GET', url)
 
 @dataclass
 class Workspace:
@@ -128,8 +127,8 @@ class Workspace:
 
     def get(self):
         """Get workspace details."""
-        url = f'{tsb.endpoint}/v2/organizations/{self.tenant.organization.name}/tenants/{self.tenant.name}/workspaces/{self.name}'
-        response = tsb.send_request('GET', url)
+        url = f'{tetrate.endpoint}/v2/organizations/{self.tenant.organization.name}/tenants/{self.tenant.name}/workspaces/{self.name}'
+        response = tetrate.send_request('GET', url)
         # Update the object's workspace_data with the retrieved data
         self.workspace_data = response.get('workspace', self.workspace_data)
         self.workspace_data['etag'] = response.get('etag')
@@ -137,13 +136,13 @@ class Workspace:
 
     def create(self):
         """Create a new workspace in TSB."""
-        url = f'{tsb.endpoint}/v2/organizations/{self.tenant.organization.name}/tenants/{self.tenant.name}/workspaces'
+        url = f'{tetrate.endpoint}/v2/organizations/{self.tenant.organization.name}/tenants/{self.tenant.name}/workspaces'
         payload = {
             'name': self.name,
             'workspace': self.workspace_data
         }
         logger.info(f"Creating workspace: {self.name}")
-        response = tsb.send_request('POST', url, payload)
+        response = tetrate.send_request('POST', url, payload)
         # Update the object's workspace_data with the created data
         self.workspace_data = response.get('workspace', self.workspace_data)
         self.workspace_data['etag'] = response.get('etag')
@@ -162,11 +161,11 @@ class Workspace:
         # Prepare the payload
         payload = self.workspace_data
         
-        url = f'{tsb.endpoint}/v2/organizations/{self.tenant.organization.name}/tenants/{self.tenant.name}/workspaces/{self.name}'
+        url = f'{tetrate.endpoint}/v2/organizations/{self.tenant.organization.name}/tenants/{self.tenant.name}/workspaces/{self.name}'
         logger.info(f"Updating workspace: {self.name} with data: {payload}")
 
         # Send the PUT request with the updated payload
-        updated_response = tsb.send_request('PUT', url, payload)
+        updated_response = tetrate.send_request('PUT', url, payload)
 
         # Update the object's workspace_data with the updated data
         self.workspace_data = updated_response.get('workspace', self.workspace_data)
@@ -176,15 +175,15 @@ class Workspace:
 
     def delete(self):
         """Delete the workspace."""
-        url = f'{tsb.endpoint}/v2/organizations/{self.tenant.organization.name}/tenants/{self.tenant.name}/workspaces/{self.name}'
+        url = f'{tetrate.endpoint}/v2/organizations/{self.tenant.organization.name}/tenants/{self.tenant.name}/workspaces/{self.name}'
         logger.info(f"Deleting workspace: {self.name}")
-        return tsb.send_request('DELETE', url)
+        return tetrate.send_request('DELETE', url)
 
 def test():
     try:
         # Create organization and tenant objects
-        organization = Organization(tsb.organization)
-        tenant = Tenant(organization, tsb.tenant)
+        organization = Organization(tetrate.organization)
+        tenant = Tenant(organization, tetrate.tenant)
 
         # Get organization details
         org_details = organization.get()
