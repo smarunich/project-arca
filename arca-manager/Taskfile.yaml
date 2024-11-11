@@ -26,13 +26,20 @@ tasks:
     desc: Install CRDs
     cmds:
       - kubectl apply -f helm/crds/
+      - sleep 5  # Give the CRD some time to be established
     silent: false
 
   helm-upgrade:
     desc: Upgrade the Helm release for the arca-manager
     deps: [install-crds]
     cmds:
-      - helm upgrade --install arca-manager ./helm -n arca-system --create-namespace --wait
+      - |
+        helm upgrade --install arca-manager ./helm \
+          -n arca-system \
+          --create-namespace \
+          --wait \
+          --wait-for-jobs \
+          --timeout 5m
     silent: false
 
   k8s-restart:
