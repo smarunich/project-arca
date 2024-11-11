@@ -1,19 +1,39 @@
 # Dockerfile.test
 
-FROM python:3.12-slim
+FROM python:3.9-slim
 
-# Set work directory
+# Set working directory
 WORKDIR /app
 
-# Install dependencies directly
-RUN pip install \
-    requests \
-    kopf \
-    kubernetes \
-    logging
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    git \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy the application code into the container
-COPY . /app
+# Install required packages directly
+RUN pip install --no-cache-dir \
+    # Core dependencies
+    kopf==1.35.6 \
+    kubernetes==25.3.0 \
+    requests==2.31.0 \
+    # Test dependencies
+    pytest==7.4.3 \
+    pytest-cov==4.1.0 \
+    responses==0.24.1 \
+    pytest-mock==3.12.0
 
-# Set entrypoint for running tests
-ENTRYPOINT ["python3", "-m", "unittest", "discover"]
+# Copy source code and tests
+COPY agent.py tetrate.py /app/
+COPY tests/ /app/tests/
+
+# Create pytest.ini
+RUN echo "[pytest]\n\
+addopts = -v --cov=. --cov-report=term-missing\n\
+testpaths = tests\n\
+python_files = test_*.py" > pytest.ini
+
+# Add current directory to PYTHONPATH
+ENV PYTHONPATH=/app
+
+# Run tests
+CMD ["pytest"]
