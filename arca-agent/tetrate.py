@@ -224,7 +224,8 @@ class WorkspaceSetting:
     workspace: Workspace
     name: str
     setting_data: dict = None
-
+    max_retries: int = 3
+    
     def __post_init__(self):
         if self.setting_data is None:
             self.setting_data = {}
@@ -236,46 +237,69 @@ class WorkspaceSetting:
                f'tenants/{self.workspace.tenant.name}/workspaces/{self.workspace.name}/settings/{self.name}')
         try:
             response = tetrate.send_request('GET', url)
-            self.setting_data = response.get('settings', {})
+            self.setting_data = response
             return response
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:
                 return None
             raise
 
-    def create_or_update(self, desired_settings: dict):
+    def create_or_update(self, desired_settings: dict, retry_count=0):
         """Create or update workspace setting with given settings."""
+        if retry_count >= self.max_retries:
+            raise Exception(f"Max retries ({self.max_retries}) exceeded while trying to update workspace settings")
+            
         tetrate = TetrateConnection.get_instance()
         base_url = (f'{tetrate.endpoint}/v2/organizations/{self.workspace.tenant.organization.name}/'
                    f'tenants/{self.workspace.tenant.name}/workspaces/{self.workspace.name}/settings')
         
-        # Try to get existing settings
-        existing = self.get()
-        
-        if existing:
-            # Merge existing with desired settings
-            merged_settings = existing.get('settings', {}).copy()
-            logger.debug(f"Existing settings before merge: {merged_settings}")
-            recursive_merge(merged_settings, desired_settings)
-            logger.debug(f"Settings after merge: {merged_settings}")
+        try:
+            # Try to get existing settings
+            existing = self.get()
             
-            # Update existing settings
-            url = f"{base_url}/{self.name}"
-            logger.info(f"Updating workspace setting: {self.name}")
-            response = tetrate.send_request('PUT', url, merged_settings)
-            self.setting_data = merged_settings
-            return response
-        else:
-            # Create new settings
-            logger.info(f"Creating new workspace setting: {self.name}")
-            payload = {
-                'name': self.name,
-                'settings': desired_settings
-            }
-            logger.debug(f"Create payload: {payload}")
-            response = tetrate.send_request('POST', base_url, payload)
-            self.setting_data = desired_settings
-            return response
+            if existing:
+                # Get the etag from existing settings
+                etag = existing.get('etag')
+                
+                # Merge existing with desired settings
+                merged_settings = existing.copy()  # Copy the entire response
+                if 'settings' in merged_settings:
+                    recursive_merge(merged_settings, desired_settings)
+                else:
+                    merged_settings = desired_settings
+                
+                # Preserve the etag
+                if etag:
+                    merged_settings['etag'] = etag
+                
+                logger.debug(f"Updating with merged settings: {merged_settings}")
+                
+                # Update existing settings
+                url = f"{base_url}/{self.name}"
+                logger.info(f"Updating workspace setting: {self.name}")
+                logger.debug(f"Update payload: {merged_settings}")
+                response = tetrate.send_request('PUT', url, merged_settings)
+                self.setting_data = response
+                return response
+            else:
+                # Create new settings
+                logger.info(f"Creating new workspace setting: {self.name}")
+                logger.debug(f"Update payload: {desired_settings}")
+                payload = {
+                    'name': self.name,
+                    'settings': desired_settings
+                }
+                logger.debug(f"Create payload: {payload}")
+                response = tetrate.send_request('POST', base_url, payload)
+                self.setting_data = response
+                return response
+                
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 500 and "the resource has already been modified" in str(e.response.text):
+                # Resource was modified, retry with fresh data
+                logger.warning(f"Concurrent modification detected, retrying ({retry_count + 1}/{self.max_retries})")
+                return self.create_or_update(desired_settings, retry_count + 1)
+            raise
 
     def delete(self):
         """Delete the workspace setting."""
