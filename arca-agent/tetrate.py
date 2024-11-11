@@ -33,12 +33,12 @@ class TetrateConnection:
             'Content-Type': 'application/json',
             'Accept': 'application/json'
         }
-        if self.api_token:
-            headers['Authorization'] = f'Bearer {self.api_token}'
-        elif self.username and self.password:
+        if self.username and self.password:
             import base64
             credentials = base64.b64encode(f"{self.username}:{self.password}".encode()).decode()
             headers['Authorization'] = f'Basic {credentials}'
+        elif self.api_token:
+            headers['Authorization'] = f'Bearer {self.api_token}'
         else:
             logger.error("Authentication credentials are missing.")
             raise ValueError("Authentication credentials must be provided.")
