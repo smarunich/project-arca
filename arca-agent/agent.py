@@ -3,8 +3,6 @@ import kopf
 from kubernetes import client, config as kube_config
 import logging
 from tetrate import TetrateConnection, Organization, Tenant, Workspace
-import time
-from requests.exceptions import RequestException
 
 # Configure logging
 log_level = os.getenv('LOG_LEVEL', 'DEBUG').upper()
@@ -72,60 +70,23 @@ def initialize_tetrate_connection(tetrate_config):
         logger.info("Tetrate connection initialized")
 
 def create_workspace(namespace_name):
-    """Create a workspace in Tetrate based on the namespace name with retry logic."""
-    if not tetrate:
-        logger.warning("Tetrate connection not initialized")
-        return
-
-    retries = 3
-    for attempt in range(retries):
-        try:
-            logger.debug(f"Attempting to create workspace for namespace: {namespace_name}")
-            organization = Organization(tetrate.organization)
-            tenant = Tenant(organization, tetrate.tenant)
-            workspace = Workspace(tenant=tenant, name=namespace_name)
-            response = workspace.create()
-            logger.info(f"Workspace '{namespace_name}' created successfully: {response}")
-            break
-        except RequestException as e:
-            logger.error(f"Request failed on attempt {attempt + 1}/{retries} for workspace '{namespace_name}': {str(e)}")
-            time.sleep(2 ** attempt)  # Exponential backoff
-        except Exception as e:
-            logger.error(f"Error creating workspace '{namespace_name}': {str(e)}")
-            break
-
-def delete_workspace(namespace_name):
-    """Delete a workspace in Tetrate for the given namespace."""
+    """Create a workspace in Tetrate based on the namespace name."""
     if not tetrate:
         logger.warning("Tetrate connection not initialized")
         return
 
     try:
+        logger.debug(f"Creating workspace for namespace: {namespace_name}")
+        # Create organization and tenant objects
         organization = Organization(tetrate.organization)
         tenant = Tenant(organization, tetrate.tenant)
+
+        # Initialize the Workspace object
         workspace = Workspace(tenant=tenant, name=namespace_name)
-        response = workspace.delete()
-        logger.info(f"Workspace '{namespace_name}' deleted successfully: {response}")
+        response = workspace.create()
+        logger.info(f"Workspace '{namespace_name}' created successfully: {response}")
     except Exception as e:
-        logger.error(f"Error deleting workspace '{namespace_name}': {str(e)}")
-
-def select_namespaces_by_discovery_label():
-    """Retrieve namespaces matching the discoveryLabel in AgentConfig."""
-    if not agent_config or not agent_config.get('discovery_key') or not agent_config.get('discovery_value'):
-        logger.warning("No valid discovery label configuration found")
-        return []
-
-    label_selector = f"{agent_config['discovery_key']}={agent_config['discovery_value']}"
-    logger.debug(f"Selecting namespaces with label selector: {label_selector}")
-
-    try:
-        namespaces = core_v1_api.list_namespace(label_selector=label_selector)
-        selected_namespaces = [ns.metadata.name for ns in namespaces.items]
-        logger.info(f"Namespaces matching discovery label '{label_selector}': {selected_namespaces}")
-        return selected_namespaces
-    except Exception as e:
-        logger.error(f"Error retrieving namespaces with label '{label_selector}': {str(e)}")
-        return []
+        logger.error(f"Error creating workspace '{namespace_name}': {str(e)}")
 
 @kopf.on.create('operator.arca.io', 'v1alpha1', 'agentconfigs')
 @kopf.on.update('operator.arca.io', 'v1alpha1', 'agentconfigs')
@@ -194,8 +155,11 @@ def reconcile_agentconfig(spec, logger, **kwargs):
 
     try:
         logger.info(f"Reconciling with label '{agent_config['discovery_label']}'")
-        namespaces = select_namespaces_by_discovery_label()
-        for namespace_name in namespaces:
+        namespaces = core_v1_api.list_namespace(
+            label_selector=f"{agent_config['discovery_key']}={agent_config['discovery_value']}"
+        )
+        for ns in namespaces.items:
+            namespace_name = ns.metadata.name
             logger.debug(f"Reconciling namespace '{namespace_name}'")
             process_namespace_services(namespace_name)
             create_workspace(namespace_name)
