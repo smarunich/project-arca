@@ -3,6 +3,7 @@ import kopf
 from kubernetes import client, config as kube_config
 import logging
 from tetrate import TetrateConnection, Organization, Tenant, Workspace
+import requests
 
 # Configure logging
 log_level = os.getenv('LOG_LEVEL', 'DEBUG').upper()
@@ -104,19 +105,34 @@ def initialize_tetrate_connection(tetrate_config):
         raise
 
 def create_workspace(namespace_name):
-    """Create a workspace in Tetrate based on the namespace name."""
+    """Create a workspace in Tetrate based on the namespace name if it doesn't exist."""
     try:
         tetrate = TetrateConnection.get_instance()
-        logger.debug(f"Creating workspace for namespace: {namespace_name}")
+        logger.debug(f"Checking workspace for namespace: {namespace_name}")
+        
+        # Initialize objects
         organization = Organization(tetrate.organization)
         tenant = Tenant(organization, tetrate.tenant)
         workspace = Workspace(tenant=tenant, name=namespace_name)
-        response = workspace.create()
-        logger.info(f"Workspace '{namespace_name}' created successfully: {response}")
+        
+        try:
+            # Check if workspace exists
+            workspace.get()
+            logger.info(f"Workspace '{namespace_name}' already exists")
+            return
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code != 404:  # If error is not "Not Found"
+                raise
+            
+            # Workspace doesn't exist, create it
+            logger.info(f"Creating new workspace for namespace: {namespace_name}")
+            response = workspace.create()
+            logger.info(f"Workspace '{namespace_name}' created successfully: {response}")
+            
     except ValueError as e:
         logger.warning(f"Tetrate connection not initialized: {str(e)}")
     except Exception as e:
-        logger.error(f"Error creating workspace '{namespace_name}': {str(e)}")
+        logger.error(f"Error handling workspace for namespace '{namespace_name}': {str(e)}")
 
 @kopf.on.create('operator.arca.io', 'v1alpha1', 'agentconfigs')
 @kopf.on.update('operator.arca.io', 'v1alpha1', 'agentconfigs')
@@ -148,8 +164,7 @@ def delete_agentconfig(spec, name, **kwargs):
     agent_config = None
     tetrate = None
 
-@kopf.on.event('', 'v1', 'namespaces',
-               labels={'discovery_key': 'discovery_value'})
+@kopf.on.event('', 'v1', 'namespaces')
 def watch_namespaces(event, name, meta, logger, **kwargs):
     """Watch for namespace events and create workspaces accordingly."""
     if not agent_config or not agent_config.get('discovery_label'):
@@ -159,38 +174,47 @@ def watch_namespaces(event, name, meta, logger, **kwargs):
         # Parse discovery label
         key, value = agent_config['discovery_label'].split('=')
         
-        # Check if namespace has the required label
+        # Get namespace labels
         namespace_labels = meta.get('labels', {})
-        if namespace_labels.get(key) != value:
-            return
+        has_required_label = namespace_labels.get(key) == value
         
-        logger.info(f"Processing namespace event: {event['type']} for {name}")
+        # Handle different event types
+        event_type = event['type']
+        logger.debug(f"Processing namespace event: {event_type} for {name}, has_label={has_required_label}")
         
-        # Create workspace for the namespace
-        if event['type'] in ['ADDED', 'MODIFIED']:
+        if event_type == 'ADDED' and has_required_label:
+            # New namespace with the required label
+            logger.info(f"New namespace {name} created with required label")
             create_workspace(name)
             
-            # List services in the namespace
+        elif event_type == 'MODIFIED':
+            # Check if label was added or removed
             try:
-                services = core_v1_api.list_namespaced_service(name).items
-                logger.debug(f"Services in namespace {name}: {[svc.metadata.name for svc in services]}")
-            except Exception as e:
-                logger.error(f"Error listing services in namespace {name}: {str(e)}")
+                old_labels = event['old']['metadata']['labels']
+                had_required_label = old_labels.get(key) == value
+            except (KeyError, TypeError):
+                had_required_label = False
+            
+            if not had_required_label and has_required_label:
+                # Label was added
+                logger.info(f"Required label added to namespace {name}")
+                create_workspace(name)
+            elif had_required_label and not has_required_label:
+                # Label was removed
+                logger.info(f"Required label removed from namespace {name}")
+                # Optionally handle workspace cleanup here
                 
     except Exception as e:
         logger.error(f"Error processing namespace {name}: {str(e)}")
         raise kopf.TemporaryError(f"Failed to process namespace: {str(e)}", delay=60)
 
 @kopf.timer('operator.arca.io', 'v1alpha1', 'agentconfigs',
-            interval=300.0,  # 5 minutes
+            interval=300.0,
             sharp=True,
-            idle=60.0,  # Wait for 1 minute of stability
-            initial_delay=60.0)  # Wait 1 minute before first check
+            idle=60.0,
+            initial_delay=60.0)
 def periodic_workspace_reconciliation(spec, name, logger, **kwargs):
-    """
-    Periodically reconcile workspaces to ensure consistency.
-    Only runs for the default AgentConfig.
-    """
+    """Periodically reconcile workspaces to ensure consistency."""
     if name != AGENT_CONFIG_NAME:
         return
         
