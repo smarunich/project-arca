@@ -1,0 +1,58 @@
+version: '3'
+
+vars:
+  REGISTRY: us-east1-docker.pkg.dev/dogfood-cx/registryrepository
+  IMAGE_NAME: arca-manager
+  TAG: latest
+  TEST_IMAGE_NAME: arca-manager-test
+
+tasks:
+  build-image:
+    desc: Build Docker image for the arca-manager
+    cmds:
+      - |
+        docker build --platform linux/amd64,linux/arm64 \
+          -t {{.REGISTRY}}/{{.IMAGE_NAME}}:{{.TAG}} . 
+    silent: false
+
+  push-image:
+    desc: Push the Docker image to the registry
+    cmds:
+      - gcloud auth configure-docker {{.REGISTRY}} --quiet
+      - docker push {{.REGISTRY}}/{{.IMAGE_NAME}}:{{.TAG}}
+    silent: false
+
+  helm-upgrade:
+    desc: Upgrade the Helm release for the arca-manager
+    cmds:
+      - helm upgrade --install arca-manager ./helm -n arca-system --create-namespace
+    silent: false
+
+  k8s-restart:
+    desc: Restart the Kubernetes deployment
+    cmds:
+      - kubectl rollout restart deployment/arca-manager -n arca-system
+    silent: false
+
+  release-now:
+    desc: Perform a full release cycle of the arca-manager
+    cmds:
+      - task: build-image
+      - task: push-image
+      - task: helm-upgrade
+      - task: k8s-restart
+
+  build-test-image:
+    desc: Build Docker image for running tests
+    cmds:
+      - |
+        docker build --platform linux/amd64,linux/arm64 \
+          -t {{.TEST_IMAGE_NAME}} -f Dockerfile.test .
+    silent: false
+
+  test:
+    desc: Run all unit tests in a Docker container
+    cmds:
+      - docker run --rm -v $(pwd):/app {{.TEST_IMAGE_NAME}}
+    silent: false
+    deps: [build-test-image]
