@@ -33,7 +33,8 @@ agent_config = None
 def configure(settings: kopf.OperatorSettings, **_):
     """Configure operator settings."""
     settings.execution.max_workers = 10
-    logger.debug("Operator settings configured with max_workers=10.")
+    settings.persistence.finalizer = None  # Disable status reporting
+    logger.debug("Operator settings configured with max_workers=10 and status reporting disabled.")
 
 def process_agentconfig(spec: dict) -> dict:
     """Process AgentConfig and return a structured configuration."""
@@ -98,70 +99,25 @@ def handle_agentconfig(spec, **kwargs):
         logger.debug(f"Handling AgentConfig with spec: {spec}")
         agent_config = process_agentconfig(spec)
         initialize_tetrate_connection(agent_config['tetrate'])
+        list_namespaces_and_print_services(agent_config['discovery_label'])
         logger.info("Configuration updated for AgentConfig")
     except Exception as e:
         logger.error(f"Failed to process AgentConfig: {str(e)}")
         raise kopf.PermanentError(f"Configuration failed: {str(e)}")
 
-@kopf.index('operator.arca.io', 'v1alpha1', 'agentconfigs')
-def agentconfigs_indexer(body, **kwargs):
-    """Index AgentConfig resources based on their discoveryLabel."""
-    try:
-        logger.debug(f"Indexing AgentConfig: {body}")
-        config = process_agentconfig(body.get('spec', {}))
-        if config.get('discovery_key') and config.get('discovery_value'):
-            logger.debug(f"Indexed discovery key-value: {config['discovery_key']}={config['discovery_value']}")
-            return [(config['discovery_key'], config['discovery_value'])]
-    except Exception as e:
-        logger.error(f"Failed to index AgentConfig: {str(e)}")
-    return []
-
 @kopf.on.create('', 'v1', 'namespaces')
 @kopf.on.update('', 'v1', 'namespaces')
-def namespace_event_handler(name, namespace, logger, indexes, **kwargs):
-    """Handle namespace creation and update events."""
-    if not agent_config:
-        logger.warning("No configuration available")
-        return
+@kopf.on.resume('', 'v1', 'namespaces')
 
-    namespace_labels = kwargs['body'].get('metadata', {}).get('labels', {})
-    namespace_name = kwargs['body']['metadata']['name']
-    logger.debug(f"Handling namespace event for: {namespace_name} with labels: {namespace_labels}")
-
-    for key, value in namespace_labels.items():
-        agentconfigs = indexes['agentconfigs_indexer'].get((key, value), [])
-        if agentconfigs:
-            logger.debug(f"Namespace '{namespace_name}' matches AgentConfig discovery label.")
-            process_namespace_services(namespace_name)
-            create_workspace(namespace_name)
-
-def process_namespace_services(namespace_name):
-    """Process services in the given namespace."""
+def list_namespaces_and_print_services(discovery_label):
+    """List namespaces using the discovery label and print services."""
     try:
-        logger.debug(f"Listing services in namespace: {namespace_name}")
-        services = core_v1_api.list_namespaced_service(namespace_name)
-        for svc in services.items:
-            service_name = svc.metadata.name
-            logger.info(f"Service '{service_name}' found in namespace '{namespace_name}'")
+        key, value = discovery_label.split('=')
+        namespaces = core_v1_api.list_namespace(label_selector=f"{key}={value}").items
+        logger.info(f"Namespaces with label {discovery_label}: {[ns.metadata.name for ns in namespaces]}")
+        
+        for ns in namespaces:
+            services = core_v1_api.list_namespaced_service(ns.metadata.name).items
+            logger.info(f"Services in namespace {ns.metadata.name}: {[svc.metadata.name for svc in services]}")
     except Exception as e:
-        logger.error(f"Error processing services in namespace '{namespace_name}': {str(e)}")
-
-@kopf.timer('operator.arca.io', 'v1alpha1', 'agentconfigs', interval=60, sharp=True)
-def reconcile_agentconfig(spec, logger, **kwargs):
-    """Periodically reconcile namespaces and services."""
-    if not agent_config or not agent_config.get('discovery_label'):
-        logger.warning("No valid configuration for reconciliation")
-        return
-
-    try:
-        logger.info(f"Reconciling with label '{agent_config['discovery_label']}'")
-        namespaces = core_v1_api.list_namespace(
-            label_selector=f"{agent_config['discovery_key']}={agent_config['discovery_value']}"
-        )
-        for ns in namespaces.items:
-            namespace_name = ns.metadata.name
-            logger.debug(f"Reconciling namespace '{namespace_name}'")
-            process_namespace_services(namespace_name)
-            create_workspace(namespace_name)
-    except Exception as e:
-        logger.error(f"Reconciliation failed: {str(e)}")
+        logger.error(f"Error listing namespaces or services: {str(e)}")
