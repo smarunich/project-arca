@@ -130,7 +130,7 @@ class Workspace:
     def __post_init__(self):
         if self.workspace_data is None:
             self.workspace_data = {
-                'namespaceSelector': {'names': [f'*/{self.name}']},  # Updated to use workspace name
+                'namespaceSelector': {'names': [f'*/{self.name}']},
                 'configGenerationMetadata': {
                     'labels': {"arca.io/managed": "true"}
                 }
@@ -138,6 +138,7 @@ class Workspace:
 
     def get(self):
         """Get workspace details."""
+        tetrate = TetrateConnection.get_instance()
         url = f'{tetrate.endpoint}/v2/organizations/{self.tenant.organization.name}/tenants/{self.tenant.name}/workspaces/{self.name}'
         response = tetrate.send_request('GET', url)
         # Update the object's workspace_data with the retrieved data
@@ -147,6 +148,7 @@ class Workspace:
 
     def create(self):
         """Create a new workspace in TSB."""
+        tetrate = TetrateConnection.get_instance()
         url = f'{tetrate.endpoint}/v2/organizations/{self.tenant.organization.name}/tenants/{self.tenant.name}/workspaces'
         payload = {
             'name': self.name,
@@ -160,10 +162,8 @@ class Workspace:
         return response
 
     def update(self, **kwargs):
-        """Update an existing workspace in TSB.
-
-        Any properties provided in kwargs will be updated in the workspace.
-        """
+        """Update an existing workspace in TSB."""
+        tetrate = TetrateConnection.get_instance()
         # Retrieve the current workspace data
         self.get()
         # Merge the updates into the workspace data recursively
@@ -186,6 +186,7 @@ class Workspace:
 
     def delete(self):
         """Delete the workspace."""
+        tetrate = TetrateConnection.get_instance()
         url = f'{tetrate.endpoint}/v2/organizations/{self.tenant.organization.name}/tenants/{self.tenant.name}/workspaces/{self.name}'
         logger.info(f"Deleting workspace: {self.name}")
         return tetrate.send_request('DELETE', url)
