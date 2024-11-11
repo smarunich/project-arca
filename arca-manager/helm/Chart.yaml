@@ -1,0 +1,5 @@
+apiVersion: v2
+name: arca-manager
+description: A Helm chart for deploying the arca-manager
+version: 0.1.0
+appVersion: "1.0"

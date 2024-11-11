@@ -218,6 +218,81 @@ class Workspace:
         logger.info(f"Deleting workspace: {self.name}")
         return tetrate.send_request('DELETE', url)
 
+@dataclass
+class WorkspaceSetting:
+    """Class representing a TSB WorkspaceSetting within a Workspace."""
+    workspace: Workspace
+    name: str
+    setting_data: dict = None
+
+    def __post_init__(self):
+        if self.setting_data is None:
+            self.setting_data = {}
+
+    def get(self):
+        """Get workspace setting details."""
+        tetrate = TetrateConnection.get_instance()
+        url = (f'{tetrate.endpoint}/v2/organizations/{self.workspace.tenant.organization.name}/'
+               f'tenants/{self.workspace.tenant.name}/workspaces/{self.workspace.name}/settings/{self.name}')
+        response = tetrate.send_request('GET', url)
+        self.setting_data = response.get('spec', {})
+        return response
+
+    def create_or_update(self, spec: dict):
+        """Create or update workspace setting with given spec."""
+        tetrate = TetrateConnection.get_instance()
+        
+        try:
+            # Try to get existing setting
+            existing = self.get()
+            logger.debug(f"Found existing setting: {existing}")
+            
+            # Update existing setting
+            url = (f'{tetrate.endpoint}/v2/organizations/{self.workspace.tenant.organization.name}/'
+                   f'tenants/{self.workspace.tenant.name}/workspaces/{self.workspace.name}/settings/{self.name}')
+            
+            # Merge existing with new spec
+            updated_spec = self.setting_data.copy()
+            recursive_merge(updated_spec, spec)
+            
+            payload = {
+                'name': self.name,
+                'settings': updated_spec
+            }
+            
+            logger.info(f"Updating workspace setting: {self.name}")
+            logger.debug(f"Update payload: {payload}")
+            response = tetrate.send_request('PUT', url, payload)
+            
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 404:
+                # Setting doesn't exist, create new
+                url = (f'{tetrate.endpoint}/v2/organizations/{self.workspace.tenant.organization.name}/'
+                       f'tenants/{self.workspace.tenant.name}/workspaces/{self.workspace.name}/settings')
+                
+                payload = {
+                    'name': self.name,
+                    'settings': spec
+                }
+                
+                logger.info(f"Creating new workspace setting: {self.name}")
+                logger.debug(f"Create payload: {payload}")
+                response = tetrate.send_request('POST', url, payload)
+            else:
+                raise
+        
+        self.setting_data = response.get('settings', {})
+        return response
+
+    def delete(self):
+        """Delete the workspace setting."""
+        tetrate = TetrateConnection.get_instance()
+        url = (f'{tetrate.endpoint}/v2/organizations/{self.workspace.tenant.organization.name}/'
+               f'tenants/{self.workspace.tenant.name}/workspaces/{self.workspace.name}/settings/{self.name}')
+        logger.info(f"Deleting workspace setting: {self.name}")
+        return tetrate.send_request('DELETE', url)
+
+
 def test():
     try:
         # Create organization and tenant objects

@@ -1,0 +1,16 @@
+replicaCount: 1
+
+image:
+  repository: us-east1-docker.pkg.dev/dogfood-cx/registryrepository/arca-manager
+  tag: latest
+  pullPolicy: Always
+
+serviceAccount:
+  name: arca-manager
+
+rbac:
+  create: true
+
+resources: {}
+
+logLevel: DEBUG  # Default log level

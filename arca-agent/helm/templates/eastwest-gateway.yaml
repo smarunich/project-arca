@@ -1,0 +1,12 @@
+---
+apiVersion: install.tetrate.io/v1alpha1
+kind: Gateway
+metadata:
+  name: arca-eastwest-gateway
+spec:
+  type: EASTWEST
+  kubeSpec:
+    service:
+      type: NodePort
+      annotations:
+        traffic.istio.io/nodeSelector: '{"kubernetes.io/os": "linux"}'

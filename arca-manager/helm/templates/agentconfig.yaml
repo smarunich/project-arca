@@ -1,0 +1,7 @@
+# manager_config.yaml
+apiVersion: operator.arca.io/v1alpha1
+kind: ManagerConfig
+metadata:
+  name: default
+spec:
+  discoveryLabel: "arca.io/managed=true"
