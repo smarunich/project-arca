@@ -7,17 +7,20 @@ from tetrate import TetrateConnection, Organization, Tenant, Workspace
 # Configure logging
 log_level = os.getenv('LOG_LEVEL', 'DEBUG').upper()
 logger = logging.getLogger('arca-agent')
-handler = logging.StreamHandler()
-formatter = logging.Formatter('%(asctime)s %(levelname)s [%(name)s] %(message)s')
-handler.setFormatter(formatter)
-logger.addHandler(handler)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter('%(asctime)s %(levelname)s [%(name)s] %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 logger.setLevel(log_level)
 
 # Load the Kubernetes configuration
 try:
     kube_config.load_incluster_config()
+    logger.debug("Loaded in-cluster Kubernetes configuration.")
 except kube_config.ConfigException:
     kube_config.load_kube_config()
+    logger.debug("Loaded local Kubernetes configuration.")
 
 # Create Kubernetes API client
 core_v1_api = client.CoreV1Api()
@@ -25,17 +28,17 @@ core_v1_api = client.CoreV1Api()
 # Global variables
 tetrate = None
 agent_config = None
-DEFAULT_CONFIG_NAME = "default"
 
 @kopf.on.startup()
 def configure(settings: kopf.OperatorSettings, **_):
     """Configure operator settings."""
     settings.execution.max_workers = 10
+    logger.debug("Operator settings configured with max_workers=10.")
 
-def process_agentconfig(name: str, spec: dict) -> dict:
+def process_agentconfig(spec: dict) -> dict:
     """Process AgentConfig and return a structured configuration."""
+    logger.debug(f"Processing AgentConfig spec: {spec}")
     config = {
-        'name': name,
         'discovery_label': spec.get('discoveryLabel'),
         'tetrate': spec.get('tetrate')
     }
@@ -44,7 +47,9 @@ def process_agentconfig(name: str, spec: dict) -> dict:
         try:
             key, value = config['discovery_label'].split('=', 1)
             config.update({'discovery_key': key, 'discovery_value': value})
+            logger.debug(f"Parsed discovery label: key={key}, value={value}")
         except ValueError:
+            logger.error(f"Invalid discoveryLabel format: '{config['discovery_label']}'")
             raise ValueError(f"Invalid discoveryLabel format: '{config['discovery_label']}'")
 
     return config
@@ -53,6 +58,7 @@ def initialize_tetrate_connection(tetrate_config):
     """Initialize Tetrate connection if configuration is present."""
     global tetrate
     if tetrate_config:
+        logger.debug(f"Initializing Tetrate connection with config: {tetrate_config}")
         tetrate = TetrateConnection(
             endpoint=tetrate_config.get('endpoint'),
             api_token=tetrate_config.get('apiToken'),
@@ -70,6 +76,7 @@ def create_workspace(namespace_name):
         return
 
     try:
+        logger.debug(f"Creating workspace for namespace: {namespace_name}")
         # Create organization and tenant objects
         organization = Organization(tetrate.organization)
         tenant = Tenant(organization, tetrate.tenant)
@@ -83,32 +90,28 @@ def create_workspace(namespace_name):
 
 @kopf.on.create('operator.arca.io', 'v1alpha1', 'agentconfigs')
 @kopf.on.update('operator.arca.io', 'v1alpha1', 'agentconfigs')
-def handle_agentconfig(spec, name, **kwargs):
+def handle_agentconfig(spec, **kwargs):
     """Handle creation and updates of AgentConfig resources."""
     global agent_config
 
-    if name != DEFAULT_CONFIG_NAME:
-        logger.info(f"Ignoring non-default AgentConfig '{name}'")
-        return
-
     try:
-        logger.debug(f"Processing AgentConfig '{name}' with spec: {spec}")
-        agent_config = process_agentconfig(name, spec)
+        logger.debug(f"Handling AgentConfig with spec: {spec}")
+        agent_config = process_agentconfig(spec)
         initialize_tetrate_connection(agent_config['tetrate'])
-        logger.info(f"Configuration updated for AgentConfig '{name}'")
+        logger.info("Configuration updated for AgentConfig")
     except Exception as e:
-        logger.error(f"Failed to process AgentConfig '{name}': {str(e)}")
+        logger.error(f"Failed to process AgentConfig: {str(e)}")
         raise kopf.PermanentError(f"Configuration failed: {str(e)}")
 
 @kopf.index('operator.arca.io', 'v1alpha1', 'agentconfigs')
 def agentconfigs_indexer(body, **kwargs):
     """Index AgentConfig resources based on their discoveryLabel."""
     try:
-        name = body['metadata'].get('name')
-        if name == DEFAULT_CONFIG_NAME:
-            config = process_agentconfig(name, body.get('spec', {}))
-            if config.get('discovery_key') and config.get('discovery_value'):
-                return [(config['discovery_key'], config['discovery_value'])]
+        logger.debug(f"Indexing AgentConfig: {body}")
+        config = process_agentconfig(body.get('spec', {}))
+        if config.get('discovery_key') and config.get('discovery_value'):
+            logger.debug(f"Indexed discovery key-value: {config['discovery_key']}={config['discovery_value']}")
+            return [(config['discovery_key'], config['discovery_value'])]
     except Exception as e:
         logger.error(f"Failed to index AgentConfig: {str(e)}")
     return []
@@ -123,18 +126,19 @@ def namespace_event_handler(name, namespace, logger, indexes, **kwargs):
 
     namespace_labels = kwargs['body'].get('metadata', {}).get('labels', {})
     namespace_name = kwargs['body']['metadata']['name']
+    logger.debug(f"Handling namespace event for: {namespace_name} with labels: {namespace_labels}")
 
     for key, value in namespace_labels.items():
         agentconfigs = indexes['agentconfigs_indexer'].get((key, value), [])
-        for agentconfig_body in agentconfigs:
-            if agentconfig_body['metadata'].get('name') == DEFAULT_CONFIG_NAME:
-                logger.debug(f"Processing namespace '{namespace_name}'")
-                process_namespace_services(namespace_name)
-                create_workspace(namespace_name)
+        if agentconfigs:
+            logger.debug(f"Namespace '{namespace_name}' matches AgentConfig discovery label.")
+            process_namespace_services(namespace_name)
+            create_workspace(namespace_name)
 
 def process_namespace_services(namespace_name):
     """Process services in the given namespace."""
     try:
+        logger.debug(f"Listing services in namespace: {namespace_name}")
         services = core_v1_api.list_namespaced_service(namespace_name)
         for svc in services.items:
             service_name = svc.metadata.name
@@ -143,7 +147,7 @@ def process_namespace_services(namespace_name):
         logger.error(f"Error processing services in namespace '{namespace_name}': {str(e)}")
 
 @kopf.timer('operator.arca.io', 'v1alpha1', 'agentconfigs', interval=60, sharp=True)
-def reconcile_agentconfig(spec, name, logger, **kwargs):
+def reconcile_agentconfig(spec, logger, **kwargs):
     """Periodically reconcile namespaces and services."""
     if not agent_config or not agent_config.get('discovery_label'):
         logger.warning("No valid configuration for reconciliation")
