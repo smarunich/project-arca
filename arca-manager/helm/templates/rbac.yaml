@@ -19,6 +19,12 @@ rules:
   - apiGroups: ["operator.arca.io"]
     resources: ["managerconfigs"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["xcp.tetrate.io"]
+    resources: ["workspaces"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["install.tetrate.io"]
+    resources: ["gateways"]
+    verbs: ["get", "list", "watch"]
 
 ---
 

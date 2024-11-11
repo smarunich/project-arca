@@ -22,10 +22,17 @@ tasks:
       - docker push {{.REGISTRY}}/{{.IMAGE_NAME}}:{{.TAG}}
     silent: false
 
+  install-crds:
+    desc: Install CRDs
+    cmds:
+      - kubectl apply -f helm/crds/
+    silent: false
+
   helm-upgrade:
     desc: Upgrade the Helm release for the arca-manager
+    deps: [install-crds]
     cmds:
-      - helm upgrade --install arca-manager ./helm -n arca-system --create-namespace
+      - helm upgrade --install arca-manager ./helm -n arca-system --create-namespace --wait
     silent: false
 
   k8s-restart:
@@ -39,6 +46,7 @@ tasks:
     cmds:
       - task: build-image
       - task: push-image
+      - task: install-crds
       - task: helm-upgrade
       - task: k8s-restart
 
