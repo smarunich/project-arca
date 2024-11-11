@@ -1,19 +1,18 @@
-# Taskfile.yaml
 version: '3'
 
 vars:
   REGISTRY: us-east1-docker.pkg.dev/dogfood-cx/registryrepository
   IMAGE_NAME: arca-agent
   TAG: latest
+  TEST_IMAGE_NAME: arca-agent-test
 
 tasks:
   build-image:
-    desc: Build Docker image for the Arca-Agent
+    desc: Build Docker image for the arca-agent
     cmds:
-      - | 
-        docker build --platform linux/amd64 \
-          -t {{.REGISTRY}}/arca-agent:latest . 
-      - docker tag {{.REGISTRY}}/arca-agent:latest {{.REGISTRY}}/arca-agent:{{.TAG}}
+      - |
+        docker build --platform linux/amd64,linux/arm64 \
+          -t {{.REGISTRY}}/{{.IMAGE_NAME}}:{{.TAG}} . 
     silent: false
 
   push-image:
@@ -24,7 +23,7 @@ tasks:
     silent: false
 
   helm-upgrade:
-    desc: Upgrade the Helm release for the Arca-Agent
+    desc: Upgrade the Helm release for the arca-agent
     cmds:
       - helm upgrade arca-agent ./helm -n arca-system --create-namespace
     silent: false
@@ -36,9 +35,24 @@ tasks:
     silent: false
 
   release-now:
-    desc: Perform a full release cycle of the Arca-Agent
+    desc: Perform a full release cycle of the arca-agent
     cmds:
       - task: build-image
       - task: push-image
       - task: helm-upgrade
       - task: k8s-restart
+
+  build-test-image:
+    desc: Build Docker image for running tests
+    cmds:
+      - |
+        docker build --platform linux/amd64,linux/arm64 \
+          -t {{.TEST_IMAGE_NAME}} -f Dockerfile.test .
+    silent: false
+
+  test:
+    desc: Run all unit tests in a Docker container
+    cmds:
+      - docker run --rm -v $(pwd):/app {{.TEST_IMAGE_NAME}}
+    silent: false
+    deps: [build-test-image]

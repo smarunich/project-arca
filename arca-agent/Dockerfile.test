@@ -1,0 +1,19 @@
+# Dockerfile.test
+
+FROM python:3.12-slim
+
+# Set work directory
+WORKDIR /app
+
+# Install dependencies directly
+RUN pip install \
+    requests \
+    kopf \
+    kubernetes \
+    logging
+
+# Copy the application code into the container
+COPY . /app
+
+# Set entrypoint for running tests
+ENTRYPOINT ["python3", "-m", "unittest", "discover"]
