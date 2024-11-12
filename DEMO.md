@@ -1,74 +1,84 @@
 # ARCA Demo Guide
 
-This guide provides a step-by-step demonstration of ARCA's capabilities in automating TSB resource management.
+This guide provides instructions for demonstrating ARCA's capabilities in automating TSB resource management.
 
-## Prerequisites
+## Quick Start
 
-- Kubernetes cluster with TSB installed
-- ARCA installed (agent and manager)
-- `kubectl` configured
-- Sample application files
+The easiest way to run the demo is using the provided demo script:
+
+```bash
+# Run with default namespace (bookinfo)
+./demo.sh
+
+# Run with custom namespace
+./demo.sh -n my-demo
+```
+
+## Demo Script Features
+
+The demo script (`demo.sh`) provides:
+- Interactive step-by-step demonstration
+- Clear visual feedback
+- Automatic resource creation
+- Status checking
+- Pretty-printed results
 
 ## Demo Flow
 
-### Namespace Management
+1. **Namespace Creation**
+   - Creates a new namespace
+   - Labels it for ARCA management
+   - Triggers workspace creation in TSB
 
-```bash
-# Create a demo namespace
-cat <<EOF | kubectl apply -f -
+2. **Application Deployment**
+   - Deploys Bookinfo application
+   - Creates necessary services
+   - Sets up service accounts
+
+3. **Service Exposure**
+   - Exposes services via annotations
+   - Configures gateway routes
+   - Sets up domain mappings
+
+4. **Results Display**
+   - Shows service annotations
+   - Displays gateway status
+   - Lists access URLs
+
+## Example Service Configuration
+
+```yaml
 apiVersion: v1
-kind: Namespace
+kind: Service
 metadata:
-  name: demo-app
-EOF
-
-# Show no TSB workspace exists yet
-kubectl get namespace demo-app -o yaml
-
-# Add ARCA label to enable management
-kubectl label namespace demo-app arca.io/managed=true
-
-# Show automatic workspace creation
-kubectl get namespace demo-app -o yaml
+  name: productpage
+  annotations:
+    arca.io/expose: "true"
+    arca.io/domain: "bookinfo.example.com"
+    arca.io/path: "/productpage"
+spec:
+  ports:
+    - port: 9080
+  selector:
+    app: productpage
 ```
 
-Point out:
-- Label triggers workspace creation
-- Automatic configuration in TSB
-- Workspace settings applied
+## Access Information
 
-### Service Exposure
+After running the demo:
+1. Get the gateway IP
+2. Add DNS entries or update /etc/hosts
+3. Access services via configured domains
 
+## Cleanup
+
+To remove demo resources:
 ```bash
-# Deploy sample application
-kubectl apply -f samples/bookinfo.yaml -n demo-app
-
-# Show services without exposure
-kubectl get services -n demo-app
-
-# Expose productpage service
-kubectl annotate service productpage \
-  arca.io/expose=true \
-  arca.io/domain=bookinfo.example.com \
-  arca.io/path=/productpage \
-  -n demo-app
-
-# Show automatic gateway configuration
-kubectl get service productpage -n demo-app -o yaml
+kubectl delete namespace <namespace-name>
 ```
 
-Highlight:
-- Simple annotation-based configuration
-- Automatic gateway creation
-- Route configuration
-- Status feedback in annotations
-
-### Cleanup
-
-```bash
-# Remove demo resources
-kubectl delete namespace demo-app
-
-# Show automatic cleanup
-kubectl get workspaces -n tsb
-```
+## Next Steps
+- Explore service annotations
+- Configure custom routes
+- Set up additional gateways
+- Monitor TSB resources
