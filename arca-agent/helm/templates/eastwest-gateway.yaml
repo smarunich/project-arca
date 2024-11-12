@@ -7,6 +7,6 @@ spec:
   type: EASTWEST
   kubeSpec:
     service:
-      type: NodePort
+      type: LoadBalancer
       annotations:
         traffic.istio.io/nodeSelector: '{"kubernetes.io/os": "linux"}'

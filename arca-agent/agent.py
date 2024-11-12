@@ -162,11 +162,13 @@ def workspace_manager(namespace_name):
                     },
                     'namespace': 'arca-system'
                 },
-                'exposedServices': [{
-                    'serviceLabels': {
-                        'arca.io/managed': 'true'
+                'exposedServices': [
+                    {
+                        'serviceLabels': {
+                            'arca.io/managed': 'true'
+                        }
                     }
-                }]
+                ]
             }],
             'defaultSecuritySetting': {
                 'authenticationSettings': {
