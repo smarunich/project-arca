@@ -164,52 +164,59 @@ class Workspace:
         """Get workspace details."""
         tetrate = TetrateConnection.get_instance()
         url = f'{tetrate.endpoint}/v2/organizations/{self.tenant.organization.name}/tenants/{self.tenant.name}/workspaces/{self.name}'
-        response = tetrate.send_request('GET', url)
-        # The response is the workspace data directly, not nested under 'workspace'
-        self.workspace_data = response
-        return response
+        try:
+            response = tetrate.send_request('GET', url)
+            self.workspace_data = response
+            return response
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 404:
+                return None
+            raise
 
-    def update(self, **kwargs):
-        """Update an existing workspace in TSB."""
+    def create_or_update(self, desired_data: dict):
+        """Create or update workspace with given data."""
         tetrate = TetrateConnection.get_instance()
+        base_url = f'{tetrate.endpoint}/v2/organizations/{self.tenant.organization.name}/tenants/{self.tenant.name}/workspaces'
         
-        # Get current state if we don't have it
-        if not self.workspace_data:
-            self.get()
-        
-        # Create a copy of current data
-        updated_data = self.workspace_data.copy()
-        logger.debug(f"Current workspace data before merge: {updated_data}")
-        
-        # Merge the updates
-        recursive_merge(updated_data, kwargs)
-        logger.debug(f"Merged workspace data: {updated_data}")
-        
-        # Prepare the payload
-        url = f'{tetrate.endpoint}/v2/organizations/{self.tenant.organization.name}/tenants/{self.tenant.name}/workspaces/{self.name}'
-        logger.info(f"Updating workspace: {self.name} with data: {updated_data}")
-
-        # Send the PUT request with the updated payload
-        updated_response = tetrate.send_request('PUT', url, updated_data)
-
-        # Update the object's workspace_data with the response
-        self.workspace_data = updated_response
-        return updated_response
-
-    def create(self):
-        """Create a new workspace in TSB."""
-        tetrate = TetrateConnection.get_instance()
-        url = f'{tetrate.endpoint}/v2/organizations/{self.tenant.organization.name}/tenants/{self.tenant.name}/workspaces'
-        
-        logger.info(f"Creating workspace: {self.name} with data: {self.workspace_data}")
-        response = tetrate.send_request('POST', url, {
-            'name': self.name,
-            'workspace': self.workspace_data
-        })
-        
-        # Update the object's workspace_data with the created data
-        self.workspace_data = response
-        return response
+        try:
+            # Try to get existing workspace
+            existing = self.get()
+            
+            if existing:
+                # Get the etag from existing workspace
+                etag = existing.get('etag')
+                
+                # Merge existing with desired data
+                merged_data = existing.copy()
+                recursive_merge(merged_data, desired_data)
+                
+                # Preserve the etag
+                if etag:
+                    merged_data['etag'] = etag
+                
+                logger.debug(f"Updating workspace with merged data: {merged_data}")
+                
+                # Update existing workspace
+                url = f"{base_url}/{self.name}"
+                logger.info(f"Updating workspace: {self.name}")
+                response = tetrate.send_request('PUT', url, merged_data)
+                self.workspace_data = response
+                return response
+            else:
+                # Create new workspace
+                logger.info(f"Creating new workspace: {self.name}")
+                payload = {
+                    'name': self.name,
+                    'workspace': desired_data
+                }
+                logger.debug(f"Create payload: {payload}")
+                response = tetrate.send_request('POST', base_url, payload)
+                self.workspace_data = response
+                return response
+                
+        except Exception as e:
+            logger.error(f"Error managing workspace {self.name}: {str(e)}")
+            raise
 
     def delete(self):
         """Delete the workspace."""

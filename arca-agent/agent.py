@@ -129,29 +129,11 @@ def workspace_manager(namespace_name):
             'displayName': f'Workspace {namespace_name}'
         }
         
-        # Create workspace instance
+        # Create workspace instance and create/update it
         workspace = Workspace(tenant=tenant, name=namespace_name)
+        workspace_response = workspace.create_or_update(desired_workspace_data)
+        logger.info(f"Workspace '{namespace_name}' created/updated successfully")
         
-        try:
-            # Check if workspace exists
-            existing_response = workspace.get()
-            logger.info(f"Workspace '{namespace_name}' exists, checking for updates")
-            logger.debug(f"Existing workspace data: {existing_response}")
-            
-            # Update workspace with merged configuration
-            workspace.update(**desired_workspace_data)
-            logger.info(f"Workspace '{namespace_name}' updated successfully")
-            
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 404:
-                # Workspace doesn't exist, create it
-                logger.info(f"Creating new workspace for namespace: {namespace_name}")
-                workspace.workspace_data = desired_workspace_data
-                response = workspace.create()
-                logger.info(f"Workspace '{namespace_name}' created successfully: {response}")
-            else:
-                raise
-
         # Create or update workspace settings
         workspace_setting = WorkspaceSetting(workspace=workspace, name='default')
         
@@ -179,8 +161,8 @@ def workspace_manager(namespace_name):
         
         try:
             # Create or update the workspace settings
-            response = workspace_setting.create_or_update(workspace_settings)
-            logger.info(f"Workspace settings for '{namespace_name}' created/updated successfully: {response}")
+            settings_response = workspace_setting.create_or_update(workspace_settings)
+            logger.info(f"Workspace settings for '{namespace_name}' created/updated successfully")
         except Exception as e:
             logger.error(f"Error creating/updating workspace settings for '{namespace_name}': {str(e)}")
             raise
