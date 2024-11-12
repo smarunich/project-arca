@@ -405,6 +405,100 @@ class GatewayGroup:
         logger.info(f"Deleting gateway group: {self.name}")
         return tetrate.send_request('DELETE', url)
 
+@dataclass
+class Gateway:
+    """Class representing a TSB Gateway within a GatewayGroup."""
+    group: GatewayGroup
+    name: str
+    gateway_data: dict = None
+
+    def __post_init__(self):
+        if self.gateway_data is None:
+            self.gateway_data = {
+                'workloadSelector': {
+                    'namespace': '',
+                    'labels': {
+                        'app': 'gateway'
+                    }
+                },
+                'configGenerationMetadata': {
+                    'labels': {
+                        'arca.io/managed': 'true'
+                    }
+                }
+            }
+
+    def get(self):
+        """Get gateway details."""
+        tetrate = TetrateConnection.get_instance()
+        url = (f'{tetrate.endpoint}/v2/organizations/{self.group.workspace.tenant.organization.name}/'
+               f'tenants/{self.group.workspace.tenant.name}/workspaces/{self.group.workspace.name}/'
+               f'gatewaygroups/{self.group.name}/unifiedgateways/{self.name}')
+        try:
+            response = tetrate.send_request('GET', url)
+            self.gateway_data = response.get('gateway', {})
+            return response
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 404:
+                return None
+            raise
+
+    def create_or_update(self, desired_data: dict):
+        """Create or update gateway with given data."""
+        tetrate = TetrateConnection.get_instance()
+        base_url = (f'{tetrate.endpoint}/v2/organizations/{self.group.workspace.tenant.organization.name}/'
+                   f'tenants/{self.group.workspace.tenant.name}/workspaces/{self.group.workspace.name}/'
+                   f'gatewaygroups/{self.group.name}/unifiedgateways')
+        
+        try:
+            # Try to get existing gateway
+            existing = self.get()
+            
+            if existing:
+                # Get the etag from existing gateway
+                etag = existing.get('etag')
+                
+                # Merge existing with desired data
+                merged_data = existing.copy()
+                recursive_merge(merged_data, desired_data)
+                
+                # Preserve the etag
+                if etag:
+                    merged_data['etag'] = etag
+                
+                logger.debug(f"Updating gateway with merged data: {merged_data}")
+                
+                # Update existing gateway
+                url = f"{base_url}/{self.name}"
+                logger.info(f"Updating gateway: {self.name}")
+                response = tetrate.send_request('PUT', url, merged_data)
+                self.gateway_data = response.get('gateway', {})
+                return response
+            else:
+                # Create new gateway
+                logger.info(f"Creating new gateway: {self.name}")
+                payload = {
+                    'name': self.name,
+                    'gateway': desired_data
+                }
+                logger.debug(f"Create payload: {payload}")
+                response = tetrate.send_request('POST', base_url, payload)
+                self.gateway_data = response.get('gateway', {})
+                return response
+                
+        except Exception as e:
+            logger.error(f"Error managing gateway {self.name}: {str(e)}")
+            raise
+
+    def delete(self):
+        """Delete the gateway."""
+        tetrate = TetrateConnection.get_instance()
+        url = (f'{tetrate.endpoint}/v2/organizations/{self.group.workspace.tenant.organization.name}/'
+               f'tenants/{self.group.workspace.tenant.name}/workspaces/{self.group.workspace.name}/'
+               f'gatewaygroups/{self.group.name}/unifiedgateways/{self.name}')
+        logger.info(f"Deleting gateway: {self.name}")
+        return tetrate.send_request('DELETE', url)
+
 def test():
     try:
         # Create organization and tenant objects
