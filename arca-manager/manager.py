@@ -112,7 +112,7 @@ def create_application_gateway(namespace_name: str):
                 "type": "UNIFIED",
                 "kubeSpec": {
                     "service": {
-                        "type": "NodePort",
+                        "type": "LoadBalancer",
                         "annotations": {
                             "traffic.istio.io/nodeSelector": '{"kubernetes.io/os": "linux"}'
                         }

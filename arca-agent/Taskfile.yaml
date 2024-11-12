@@ -21,11 +21,18 @@ tasks:
       - gcloud auth configure-docker {{.REGISTRY}} --quiet
       - docker push {{.REGISTRY}}/{{.IMAGE_NAME}}:{{.TAG}}
     silent: false
+  
+  install-crds:
+    desc: Install CRDs
+    cmds:
+      - kubectl apply -f helm/crds/
+    silent: false
 
   helm-upgrade:
     desc: Upgrade the Helm release for the arca-agent
+    deps: [install-crds]
     cmds:
-      - helm upgrade arca-agent ./helm -n arca-system --create-namespace
+      - helm upgrade --install arca-agent ./helm -n arca-system --create-namespace
     silent: false
 
   k8s-restart:
