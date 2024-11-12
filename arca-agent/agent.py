@@ -189,7 +189,6 @@ def workspace_manager(namespace_name):
                 'configMode': 'BRIDGED',
                 'namespaceSelector': {
                     'names': [
-                        f'{agent_config["tetrate"].get("clusterName", "*")}/{namespace_name}',
                         f'{agent_config.get("service_fabric", "*")}/{namespace_name}'
                     ]
                 },
@@ -346,7 +345,10 @@ def handle_service_exposure(service, namespace_name, workspace):
             'displayName': f'Gateway Group for {namespace_name}',
             'configMode': 'BRIDGED',
             'namespaceSelector': {
-                'names': [f'{agent_config["tetrate"].get("clusterName", "*")}/{namespace_name}']
+                'names': [
+                    f'{agent_config["tetrate"].get("clusterName", "*")}/{namespace_name}',
+                    f'{agent_config.get("service_fabric", "*")}/{namespace_name}'
+                ]
             },
             'configGenerationMetadata': {
                 'labels': {
@@ -369,29 +371,35 @@ def handle_service_exposure(service, namespace_name, workspace):
             'workloadSelector': {
                 'namespace': namespace_name,
                 'labels': {
-                    'app': 'gateway'
+                    'app': f"{namespace_name}-gateway"
                 }
             },
-            'http': [{
-                'name': 'http',
-                'port': 80,
-                'hostname': domain,
-                'routing': {
-                    'rules': [{
-                        'route': {
-                            'serviceDestination': {
-                                'host': f"{service.metadata.name}.{namespace_name}.svc.cluster.local",
-                                'port': service.spec.ports[0].port
+            'http': [
+                {
+                    'name': service.metadata.name,
+                    'port': 80,
+                    'hostname': domain,
+                    'routing': {
+                        'rules': [
+                            {
+                                'route': {
+                                    'serviceDestination': {
+                                        'host': f"{namespace_name}/{service.metadata.name}.{namespace_name}.svc.cluster.local",
+                                        'port': service.spec.ports[0].port
+                                    }
+                                },
+                                'match': [
+                                    {
+                                        'uri': {
+                                            'prefix': path
+                                        }
+                                    }
+                                ]
                             }
-                        },
-                        'match': [{
-                            'uri': {
-                                'prefix': path
-                            }
-                        }]
-                    }]
+                        ]
+                    }
                 }
-            }],
+            ],
             'configGenerationMetadata': {
                 'labels': {
                     'arca.io/managed': 'true',
