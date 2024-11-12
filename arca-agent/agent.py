@@ -2,7 +2,7 @@ import os
 import kopf
 from kubernetes import client, config as kube_config
 import logging
-from tetrate import TetrateConnection, Organization, Tenant, Workspace, WorkspaceSetting, GatewayGroup
+from tetrate import TetrateConnection, Organization, Tenant, Workspace, WorkspaceSetting, GatewayGroup, Gateway
 
 import requests
 
@@ -33,6 +33,11 @@ agent_config = None
 
 AGENT_CONFIG_NAME = "default"  # Default name for the AgentConfig resource
 FINALIZER = 'operator.arca.io/cleanup'  # Define a proper finalizer name
+
+# Service annotation constants
+EXPOSE_ANNOTATION = 'arca.io/expose'
+DOMAIN_ANNOTATION = 'arca.io/domain'
+PATH_ANNOTATION = 'arca.io/path'
 
 @kopf.on.startup()
 def configure(settings: kopf.OperatorSettings, **_):
@@ -297,3 +302,156 @@ def periodic_workspace_reconciliation(spec, name, logger, **kwargs):
     except Exception as e:
         logger.error(f"Error during periodic reconciliation: {str(e)}")
         raise kopf.TemporaryError(f"Reconciliation failed: {str(e)}", delay=300)
+
+def handle_service_exposure(service, namespace_name, workspace):
+    """Handle service exposure through gateway."""
+    try:
+        annotations = service.metadata.annotations or {}
+        
+        # Check if service should be exposed
+        if annotations.get(EXPOSE_ANNOTATION) != 'true':
+            return
+            
+        # Get domain and path from annotations
+        domain = annotations.get(DOMAIN_ANNOTATION)
+        path = annotations.get(PATH_ANNOTATION, '/')
+        
+        if not domain:
+            logger.warning(f"Service {service.metadata.name} missing domain annotation")
+            return
+            
+        # Get or create gateway group
+        gateway_group = GatewayGroup(
+            workspace=workspace,
+            name=f"{namespace_name}-gateways"
+        )
+        
+        # Configure gateway group
+        gateway_group_config = {
+            'displayName': f'Gateway Group for {namespace_name}',
+            'configMode': 'BRIDGED',
+            'namespaceSelector': {
+                'names': [f'{agent_config["tetrate"].get("clusterName", "*")}/{namespace_name}']
+            },
+            'configGenerationMetadata': {
+                'labels': {
+                    'arca.io/managed': 'true',
+                    'arca.io/namespace': namespace_name
+                }
+            }
+        }
+        
+        gateway_group.create_or_update(gateway_group_config)
+        
+        # Create or update gateway
+        gateway = Gateway(
+            group=gateway_group,
+            name=f"{service.metadata.name}-gateway"
+        )
+        
+        # Configure gateway
+        gateway_config = {
+            'workloadSelector': {
+                'namespace': namespace_name,
+                'labels': {
+                    'app': 'gateway'
+                }
+            },
+            'http': [{
+                'name': 'http',
+                'port': 80,
+                'hostname': domain,
+                'routing': {
+                    'rules': [{
+                        'route': {
+                            'serviceDestination': {
+                                'host': f"{service.metadata.name}.{namespace_name}.svc.cluster.local",
+                                'port': service.spec.ports[0].port
+                            }
+                        },
+                        'match': [{
+                            'uri': {
+                                'prefix': path
+                            }
+                        }]
+                    }]
+                }
+            }],
+            'configGenerationMetadata': {
+                'labels': {
+                    'arca.io/managed': 'true',
+                    'arca.io/service': service.metadata.name
+                }
+            }
+        }
+        
+        gateway.create_or_update(gateway_config)
+        logger.info(f"Gateway created/updated for service {service.metadata.name} in namespace {namespace_name}")
+        
+        # Update service status
+        patch = {
+            'metadata': {
+                'annotations': {
+                    'arca.io/status': 'exposed',
+                    'arca.io/gateway': f"{service.metadata.name}-gateway",
+                    'arca.io/url': f"http://{domain}{path}"
+                }
+            }
+        }
+        core_v1_api.patch_namespaced_service(
+            name=service.metadata.name,
+            namespace=namespace_name,
+            body=patch
+        )
+        
+    except Exception as e:
+        logger.error(f"Error handling service exposure for {service.metadata.name}: {str(e)}")
+        # Update service status with error
+        patch = {
+            'metadata': {
+                'annotations': {
+                    'arca.io/status': 'error',
+                    'arca.io/error': str(e)
+                }
+            }
+        }
+        core_v1_api.patch_namespaced_service(
+            name=service.metadata.name,
+            namespace=namespace_name,
+            body=patch
+        )
+
+@kopf.on.event('', 'v1', 'services')
+def watch_services(event, name, meta, namespace, spec, **kwargs):
+    """Watch for service events and handle gateway exposure."""
+    if not agent_config or not agent_config.get('discovery_label'):
+        return
+        
+    try:
+        # First check if namespace has required label before processing service
+        namespace_obj = core_v1_api.read_namespace(namespace)
+        key, value = agent_config['discovery_label'].split('=')
+        
+        # Skip if namespace doesn't have the required label
+        if namespace_obj.metadata.labels.get(key) != value:
+            logger.debug(f"Skipping service {name} in namespace {namespace} - namespace doesn't have required label")
+            return
+            
+        # Get service details
+        service = core_v1_api.read_namespaced_service(name, namespace)
+        
+        # Get workspace for namespace
+        organization = Organization(tetrate.organization)
+        tenant = Tenant(organization, tetrate.tenant)
+        workspace = Workspace(tenant=tenant, name=namespace)
+        
+        # Handle service exposure
+        handle_service_exposure(service, namespace, workspace)
+        
+    except client.exceptions.ApiException as e:
+        if e.status == 404:
+            logger.debug(f"Service {name} or namespace {namespace} not found")
+            return
+        logger.error(f"API error processing service {name} in namespace {namespace}: {str(e)}")
+    except Exception as e:
+        logger.error(f"Error processing service {name} in namespace {namespace}: {str(e)}")
