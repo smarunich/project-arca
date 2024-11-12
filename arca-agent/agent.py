@@ -185,7 +185,7 @@ def workspace_manager(namespace_name):
             # Create or update gateway group
             gateway_group = GatewayGroup(workspace=workspace, name=f"{namespace_name}-gateways")
             
-            # Configure gateway group with both clusterName and serviceFabric
+            # Configure gateway group with serviceFabric
             gateway_group_config = {
                 'displayName': f'Gateway Group for {namespace_name}',
                 'configMode': 'BRIDGED',
@@ -348,7 +348,6 @@ def handle_service_exposure(service, namespace_name, workspace):
             'configMode': 'BRIDGED',
             'namespaceSelector': {
                 'names': [
-                    f'{agent_config["tetrate"].get("clusterName", "*")}/{namespace_name}',
                     f'{agent_config.get("service_fabric", "*")}/{namespace_name}'
                 ]
             },
