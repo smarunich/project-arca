@@ -2,7 +2,8 @@ import os
 import kopf
 from kubernetes import client, config as kube_config
 import logging
-from tetrate import TetrateConnection, Organization, Tenant, Workspace, WorkspaceSetting, recursive_merge
+from tetrate import TetrateConnection, Organization, Tenant, Workspace, WorkspaceSetting, GatewayGroup
+
 import requests
 
 # Configure logging
@@ -163,8 +164,31 @@ def workspace_manager(namespace_name):
             # Create or update the workspace settings
             settings_response = workspace_setting.create_or_update(workspace_settings)
             logger.info(f"Workspace settings for '{namespace_name}' created/updated successfully")
+            
+            # Create or update gateway group
+            gateway_group = GatewayGroup(workspace=workspace, name=f"{namespace_name}-gateways")
+            
+            # Configure gateway group
+            gateway_group_config = {
+                'displayName': f'Gateway Group for {namespace_name}',
+                'configMode': 'BRIDGED',
+                'namespaceSelector': {
+                    'names': [f'{agent_config["tetrate"].get("clusterName", "*")}/{namespace_name}']
+                },
+                'configGenerationMetadata': {
+                    'labels': {
+                        'arca.io/managed': 'true',
+                        'arca.io/namespace': namespace_name
+                    }
+                }
+            }
+            
+            # Create or update the gateway group
+            gateway_response = gateway_group.create_or_update(gateway_group_config)
+            logger.info(f"Gateway group for '{namespace_name}' created/updated successfully")
+            
         except Exception as e:
-            logger.error(f"Error creating/updating workspace settings for '{namespace_name}': {str(e)}")
+            logger.error(f"Error creating/updating workspace resources for '{namespace_name}': {str(e)}")
             raise
             
     except ValueError as e:
