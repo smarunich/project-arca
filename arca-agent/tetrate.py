@@ -316,6 +316,94 @@ class WorkspaceSetting:
         logger.info(f"Deleting workspace setting: {self.name}")
         return tetrate.send_request('DELETE', url)
 
+@dataclass
+class GatewayGroup:
+    """Class representing a TSB Gateway Group within a Workspace."""
+    workspace: Workspace
+    name: str
+    group_data: dict = None
+
+    def __post_init__(self):
+        if self.group_data is None:
+            self.group_data = {
+                'configMode': 'BRIDGED',
+                'namespaceSelector': {
+                    'names': []
+                },
+                'configGenerationMetadata': {
+                    'labels': {
+                        'arca.io/managed': 'true'
+                    }
+                }
+            }
+
+    def get(self):
+        """Get gateway group details."""
+        tetrate = TetrateConnection.get_instance()
+        url = (f'{tetrate.endpoint}/v2/organizations/{self.workspace.tenant.organization.name}/'
+               f'tenants/{self.workspace.tenant.name}/workspaces/{self.workspace.name}/gatewaygroups/{self.name}')
+        try:
+            response = tetrate.send_request('GET', url)
+            self.group_data = response.get('group', {})
+            return response
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 404:
+                return None
+            raise
+
+    def create_or_update(self, desired_data: dict):
+        """Create or update gateway group with given data."""
+        tetrate = TetrateConnection.get_instance()
+        base_url = (f'{tetrate.endpoint}/v2/organizations/{self.workspace.tenant.organization.name}/'
+                   f'tenants/{self.workspace.tenant.name}/workspaces/{self.workspace.name}/gatewaygroups')
+        
+        try:
+            # Try to get existing group
+            existing = self.get()
+            
+            if existing:
+                # Get the etag from existing group
+                etag = existing.get('etag')
+                
+                # Merge existing with desired data
+                merged_data = existing.copy()
+                recursive_merge(merged_data, desired_data)
+                
+                # Preserve the etag
+                if etag:
+                    merged_data['etag'] = etag
+                
+                logger.debug(f"Updating gateway group with merged data: {merged_data}")
+                
+                # Update existing group
+                url = f"{base_url}/{self.name}"
+                logger.info(f"Updating gateway group: {self.name}")
+                response = tetrate.send_request('PUT', url, merged_data)
+                self.group_data = response.get('group', {})
+                return response
+            else:
+                # Create new gateway group
+                logger.info(f"Creating new gateway group: {self.name}")
+                payload = {
+                    'name': self.name,
+                    'group': desired_data
+                }
+                logger.debug(f"Create payload: {payload}")
+                response = tetrate.send_request('POST', base_url, payload)
+                self.group_data = response.get('group', {})
+                return response
+                
+        except Exception as e:
+            logger.error(f"Error managing gateway group {self.name}: {str(e)}")
+            raise
+
+    def delete(self):
+        """Delete the gateway group."""
+        tetrate = TetrateConnection.get_instance()
+        url = (f'{tetrate.endpoint}/v2/organizations/{self.workspace.tenant.organization.name}/'
+               f'tenants/{self.workspace.tenant.name}/workspaces/{self.workspace.name}/gatewaygroups/{self.name}')
+        logger.info(f"Deleting gateway group: {self.name}")
+        return tetrate.send_request('DELETE', url)
 
 def test():
     try:
