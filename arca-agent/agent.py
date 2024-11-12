@@ -440,13 +440,21 @@ def watch_services(event, name, meta, namespace, spec, **kwargs):
         # Get service details
         service = core_v1_api.read_namespaced_service(name, namespace)
         
-        # Get workspace for namespace
-        organization = Organization(tetrate.organization)
-        tenant = Tenant(organization, tetrate.tenant)
-        workspace = Workspace(tenant=tenant, name=namespace)
-        
-        # Handle service exposure
-        handle_service_exposure(service, namespace, workspace)
+        try:
+            # Get Tetrate connection
+            tetrate = TetrateConnection.get_instance()
+            
+            # Get workspace for namespace
+            organization = Organization(tetrate.organization)
+            tenant = Tenant(organization, tetrate.tenant)
+            workspace = Workspace(tenant=tenant, name=namespace)
+            
+            # Handle service exposure
+            handle_service_exposure(service, namespace, workspace)
+            
+        except ValueError as e:
+            logger.debug(f"Tetrate connection not initialized yet, skipping service {name}")
+            return
         
     except client.exceptions.ApiException as e:
         if e.status == 404:
