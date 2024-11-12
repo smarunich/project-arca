@@ -52,6 +52,7 @@ def process_agentconfig(spec: dict) -> dict:
     logger.debug(f"Processing AgentConfig spec: {spec}")
     config = {
         'discovery_label': spec.get('discoveryLabel'),
+        'service_fabric': spec.get('serviceFabric'),
         'tetrate': spec.get('tetrate')
     }
 
@@ -63,6 +64,10 @@ def process_agentconfig(spec: dict) -> dict:
         except ValueError:
             logger.error(f"Invalid discoveryLabel format: '{config['discovery_label']}'")
             raise ValueError(f"Invalid discoveryLabel format: '{config['discovery_label']}'")
+
+    if not config['service_fabric']:
+        logger.warning("serviceFabric not specified in config")
+        config['service_fabric'] = config.get('tetrate', {}).get('clusterName', '*')
 
     return config
 
@@ -120,15 +125,20 @@ def workspace_manager(namespace_name):
         organization = Organization(tetrate.organization)
         tenant = Tenant(organization, tetrate.tenant)
         
-        # Configure desired workspace data
+        # Configure desired workspace data with both clusterName and serviceFabric
         desired_workspace_data = {
             'namespaceSelector': {
-                'names': [f'{agent_config["tetrate"].get("clusterName", "*")}/{namespace_name}']
+                'names': [
+                    f'{agent_config["tetrate"].get("clusterName", "*")}/{namespace_name}',
+                    f'{agent_config.get("service_fabric", "*")}/{namespace_name}'
+                ]
             },
             'configGenerationMetadata': {
                 'labels': {
                     "arca.io/managed": "true",
-                    "arca.io/namespace": namespace_name
+                    "arca.io/namespace": namespace_name,
+                    "arca.io/cluster": agent_config["tetrate"].get("clusterName", ""),
+                    "arca.io/service-fabric": agent_config.get("service_fabric", "")
                 }
             },
             'description': f'Workspace for namespace {namespace_name}',
@@ -173,17 +183,22 @@ def workspace_manager(namespace_name):
             # Create or update gateway group
             gateway_group = GatewayGroup(workspace=workspace, name=f"{namespace_name}-gateways")
             
-            # Configure gateway group
+            # Configure gateway group with both clusterName and serviceFabric
             gateway_group_config = {
                 'displayName': f'Gateway Group for {namespace_name}',
                 'configMode': 'BRIDGED',
                 'namespaceSelector': {
-                    'names': [f'{agent_config["tetrate"].get("clusterName", "*")}/{namespace_name}']
+                    'names': [
+                        f'{agent_config["tetrate"].get("clusterName", "*")}/{namespace_name}',
+                        f'{agent_config.get("service_fabric", "*")}/{namespace_name}'
+                    ]
                 },
                 'configGenerationMetadata': {
                     'labels': {
                         'arca.io/managed': 'true',
-                        'arca.io/namespace': namespace_name
+                        'arca.io/namespace': namespace_name,
+                        'arca.io/cluster': agent_config["tetrate"].get("clusterName", ""),
+                        'arca.io/service-fabric': agent_config.get("service_fabric", "")
                     }
                 }
             }

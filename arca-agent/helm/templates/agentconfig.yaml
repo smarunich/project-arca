@@ -5,6 +5,7 @@ metadata:
   name: default
 spec:
   discoveryLabel: "arca.io/managed=true"
+  serviceFabric: "aks-arca-eastus-0"
   tetrate: 
     endpoint: https://arca.azure.sandbox.tetrate.io/
     username: admin

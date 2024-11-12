@@ -23,6 +23,8 @@ spec:
               properties:
                 discoveryLabel:
                   type: string
+                serviceFabric:
+                  type: string
                 tetrate:
                   type: object
                   properties:
