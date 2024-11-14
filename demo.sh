@@ -102,10 +102,12 @@ function step2_enable_management() {
     cat << EOF
 # Label namespace for ARCA management
 kubectl label namespace ${NAMESPACE} arca.io/managed=true
+kubectl label namespace ${NAMESPACE} istio-injection=enabled
 EOF
     
     wait_for_user
     kubectl label namespace ${NAMESPACE} arca.io/managed=true
+    kubectl label namespace ${NAMESPACE} istio-injection=enabled
     success "Enabled ARCA management"
     
     info "Waiting for TSB workspace creation..."
