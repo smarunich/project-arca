@@ -155,6 +155,7 @@ EOF
     wait_for_user
     
     # Expose productpage
+    kubectl label service productpage -n ${NAMESPACE} arca.io/managed=true
     kubectl annotate service productpage -n ${NAMESPACE} \
         arca.io/expose=true \
         arca.io/domain=${NAMESPACE}.example.com \
@@ -162,6 +163,7 @@ EOF
     success "Exposed productpage service"
     
     # Expose reviews
+    kubectl label service productpage -n ${NAMESPACE} arca.io/managed=true
     kubectl annotate service reviews -n ${NAMESPACE} \
         arca.io/expose=true \
         arca.io/domain=reviews.${NAMESPACE}.example.com \
@@ -169,6 +171,7 @@ EOF
     success "Exposed reviews service"
     
     # Expose ratings
+    kubectl label service productpage -n ${NAMESPACE} arca.io/managed=true
     kubectl annotate service ratings -n ${NAMESPACE} \
         arca.io/expose=true \
         arca.io/domain=ratings.${NAMESPACE}.example.com \
